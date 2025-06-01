@@ -188,6 +188,9 @@ class SecurityModelTrainer:
     def _setup_peft(self, model: PreTrainedModel) -> PreTrainedModel:
         """Configure PEFT for the model."""
         if self.cfg.peft.peft.method == "lora":
+            # Convert target_modules from ListConfig to regular list
+            target_modules = list(self.cfg.peft.peft.lora.target_modules)
+            
             # Configure LoRA
             peft_config = LoraConfig(
                 task_type=self.cfg.peft.peft.common.task_type,
@@ -195,7 +198,7 @@ class SecurityModelTrainer:
                 r=self.cfg.peft.peft.lora.r,
                 lora_alpha=self.cfg.peft.peft.lora.alpha,
                 lora_dropout=self.cfg.peft.peft.lora.lora_dropout,
-                target_modules=self.cfg.peft.peft.lora.target_modules,
+                target_modules=target_modules,  # Use converted list
                 bias=self.cfg.peft.peft.lora.bias,
                 modules_to_save=self.cfg.peft.peft.lora.modules_to_save
             )
