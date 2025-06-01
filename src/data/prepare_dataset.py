@@ -14,7 +14,7 @@ from omegaconf import DictConfig, OmegaConf
 # Загружаем переменные окружения из .env файла
 load_dotenv()
 
-@hydra.main(version_base=None, config_path="../../configs", config_name="config")
+@hydra.main(version_base=None, config_path="../configs", config_name="base")
 class DatasetPreparation:
     def __init__(self, cfg: DictConfig):
         self.cfg = cfg
@@ -562,10 +562,19 @@ class DatasetPreparation:
         print(f"Train examples: {len(train_examples)}")
         print(f"Validation examples: {len(val_examples)}")
 
-@hydra.main(version_base=None, config_path="../../configs", config_name="config")
+@hydra.main(version_base=None, config_path="../configs", config_name="base")
 def main(cfg: DictConfig):
-    preparator = DatasetPreparation(cfg)
-    preparator.prepare_dataset()
+    """Main function to prepare the dataset."""
+    print("Loading configuration...")
+    print(OmegaConf.to_yaml(cfg))
+    
+    # Create dataset preparation instance
+    dataset_prep = DatasetPreparation(cfg)
+    
+    # Prepare dataset
+    dataset_prep.prepare_dataset()
+    
+    print("Dataset preparation completed!")
 
 if __name__ == "__main__":
     main() 

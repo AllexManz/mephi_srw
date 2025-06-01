@@ -1,0 +1,22 @@
+# Base dataset configuration
+dataset:
+  # Dataset paths
+  output_dir: ${paths.dataset_dir}/output
+  train_val_split_ratio: 0.9
+  
+  # CVE settings
+  cve:
+    days_lookback: 30
+    results_per_page: 50
+    max_results: 1000
+    min_cvss_score: 7.0
+  
+  # MITRE ATT&CK settings
+  mitre_attack:
+    include_tactics: true
+    include_techniques: true
+  
+  # Security documentation settings
+  security_docs:
+    include: true
+    max_examples: 1000 

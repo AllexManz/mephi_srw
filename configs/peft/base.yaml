@@ -1,0 +1,19 @@
+# Base PEFT configuration
+peft:
+  enabled: false
+  method: lora
+  adapter_path: null
+
+  # Common PEFT settings
+  common:
+    task_type: CAUSAL_LM
+    inference_mode: false
+
+  # LoRA specific settings
+  lora:
+    r: 8
+    alpha: 16
+    lora_dropout: 0.1
+    bias: none
+    modules_to_save: null
+    target_modules: []  # To be overridden by model-specific configs 

@@ -1,31 +1,12 @@
 # Base training configuration
 training:
-  # Model training parameters
-  max_length: 512
+  # Training loop settings
   num_train_epochs: 3
-  per_device_train_batch_size: 4
-  per_device_eval_batch_size: 4
-  gradient_accumulation_steps: 8
-  learning_rate: 2e-4
-  weight_decay: 0.01
-  warmup_steps: 100
   seed: 42
   max_grad_norm: 1.0
   lr_scheduler_type: cosine
-
-  # Evaluation settings
-  evaluation:
-    evaluation_strategy: steps
-    eval_steps: 100
-    metric_for_best_model: eval_loss
-    greater_is_better: false
-    load_best_model_at_end: true
-
-  # Save settings
-  save:
-    save_strategy: steps
-    save_steps: 100
-    save_total_limit: 3
+  weight_decay: 0.01
+  warmup_steps: 100
 
   # Optimization settings
   optimization:
@@ -34,56 +15,8 @@ training:
     dataloader_num_workers: 4
     dataloader_pin_memory: true
 
-  # Logging settings
-  logging:
-    logging_steps: 10
-    logging_first_step: true
-    logging_dir: ${paths.output_dir}/logs
-    report_to: tensorboard
-    wandb:
-      enabled: false
-      project: security-llm
-      name: ${now:%Y-%m-%d_%H-%M-%S}
-    tensorboard:
-      enabled: true
-      log_dir: ${paths.logs}/tensorboard
-
-  # Metrics to track
-  metrics:
-    - loss
-    - learning_rate
-    - epoch
-    - eval_loss
-    - eval_perplexity
-    - eval_samples_per_second
-    - eval_steps_per_second
-
-# Paths
-paths:
-  output_dir: ${oc.env:OUTPUT_DIR,models}
-  logs: ${oc.env:LOGS_DIR,logs}
-  cache_dir: ${oc.env:CACHE_DIR,.cache}
-
-# Dataset settings
-dataset:
-  output_dir: ${oc.env:DATASET_OUTPUT_DIR,data/processed}
-  train_val_split_ratio: 0.8
-  cve:
-    days_lookback: 365
-    results_per_page: 100
-    max_results: 10000
-    min_cvss_score: 0.0
-  mitre_attack:
-    include_tactics: true
-    include_techniques: true
-  security_docs:
-    include: true
-    max_examples: 200
-
-# Environment variables
-env:
-  NVD_API_KEY: ${oc.env:NVD_API_KEY}
-  MITRE_ATTACK_URL: ${oc.env:MITRE_ATTACK_URL}
-  DATASET_OUTPUT_DIR: ${oc.env:DATASET_OUTPUT_DIR,data/processed}
-  TRAINING_OUTPUT_DIR: ${oc.env:TRAINING_OUTPUT_DIR,models/checkpoints}
-  LOGS_DIR: ${oc.env:LOGS_DIR,logs} 
+  # Save settings
+  save:
+    save_strategy: steps
+    save_steps: 100
+    save_total_limit: 3 

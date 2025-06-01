@@ -58,7 +58,7 @@ class SecurityModelTrainer:
             self.model = self._setup_peft()
         
         # Инициализация TensorBoard
-        self.writer = SummaryWriter(log_dir=os.path.join(output_dir, "tensorboard"))
+        self.writer = SummaryWriter(log_dir=self.cfg.paths.tensorboard_dir)
     
     def _setup_peft(self) -> Union[PeftModel, AutoModelForCausalLM]:
         """Настройка PEFT адаптера в зависимости от выбранного метода."""
@@ -138,7 +138,7 @@ class SecurityModelTrainer:
             lr_scheduler_type=self.cfg.training.lr_scheduler_type,
             
             # Настройки логирования
-            logging_dir=self.cfg.training.logging.logging_dir,
+            logging_dir=self.cfg.paths.training_logs_dir,
             logging_steps=self.cfg.training.logging.logging_steps,
             logging_first_step=self.cfg.training.logging.logging_first_step,
             report_to=self.cfg.training.logging.report_to,
@@ -172,10 +172,10 @@ class SecurityModelTrainer:
         eval_dataset: Optional[DatasetDict] = None
     ):
         """Обучение модели."""
-        if self.cfg.logging.wandb.enabled:
+        if self.cfg.training.logging.wandb.enabled:
             wandb.init(
-                project=self.cfg.logging.wandb.project,
-                name=self.cfg.logging.wandb.name,
+                project=self.cfg.training.logging.wandb.project,
+                name=self.cfg.training.logging.wandb.name,
                 config={
                     "model_name": self.model_name,
                     "peft_method": self.cfg.peft.method if self.cfg.peft.enabled else "full",
@@ -233,7 +233,7 @@ class SecurityModelTrainer:
         # Закрываем TensorBoard writer
         self.writer.close()
         
-        if self.cfg.logging.wandb.enabled:
+        if self.cfg.training.logging.wandb.enabled:
             wandb.finish()
     
     def save_model(self, path: str):

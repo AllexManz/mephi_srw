@@ -175,13 +175,20 @@ class SecurityModelTrainer:
         # Определяем устройство для обучения
         device = "cuda" if torch.cuda.is_available() else "cpu"
         
+        # Определяем список активных бэкендов для логирования
+        report_to = []
+        if self.cfg.logging.tensorboard.enabled:
+            report_to.append("tensorboard")
+        if self.cfg.logging.wandb.enabled:
+            report_to.append("wandb")
+        
         return TrainingArguments(
             output_dir=self.cfg.paths.checkpoints_dir,
             num_train_epochs=self.cfg.training.training.num_train_epochs,
-            per_device_train_batch_size=self.cfg.training.training.per_device_train_batch_size,
-            per_device_eval_batch_size=self.cfg.training.training.per_device_eval_batch_size,
-            gradient_accumulation_steps=self.cfg.training.training.gradient_accumulation_steps,
-            learning_rate=self.cfg.training.training.learning_rate,
+            per_device_train_batch_size=self.cfg.model.model.training.per_device_train_batch_size,
+            per_device_eval_batch_size=self.cfg.model.model.training.per_device_eval_batch_size,
+            gradient_accumulation_steps=self.cfg.model.model.training.gradient_accumulation_steps,
+            learning_rate=self.cfg.model.model.training.learning_rate,
             weight_decay=self.cfg.training.training.weight_decay,
             warmup_steps=self.cfg.training.training.warmup_steps,
             max_grad_norm=self.cfg.training.training.max_grad_norm,
@@ -192,16 +199,16 @@ class SecurityModelTrainer:
             
             # Logging settings
             logging_dir=self.cfg.paths.training_logs_dir,
-            logging_steps=self.cfg.training.training.logging.logging_steps,
-            logging_first_step=self.cfg.training.training.logging.logging_first_step,
-            report_to=self.cfg.training.training.logging.report_to,
+            logging_steps=self.cfg.logging.logging.logging_steps,
+            logging_first_step=self.cfg.logging.logging.logging_first_step,
+            report_to=report_to,  # Используем динамически сформированный список
             
             # Evaluation settings
-            eval_strategy=self.cfg.training.training.evaluation.evaluation_strategy,
-            eval_steps=self.cfg.training.training.evaluation.eval_steps,
-            metric_for_best_model=self.cfg.training.training.evaluation.metric_for_best_model,
-            greater_is_better=self.cfg.training.training.evaluation.greater_is_better,
-            load_best_model_at_end=self.cfg.training.training.evaluation.load_best_model_at_end,
+            eval_strategy="steps",  # Fixed value since it's not in config
+            eval_steps=100,  # Fixed value since it's not in config
+            metric_for_best_model="eval_loss",  # Fixed value since it's not in config
+            greater_is_better=False,  # Fixed value since it's not in config
+            load_best_model_at_end=True,  # Fixed value since it's not in config
             
             # Save settings
             save_strategy=self.cfg.training.training.save.save_strategy,
@@ -225,16 +232,16 @@ class SecurityModelTrainer:
         eval_dataset: Optional[DatasetDict] = None
     ):
         """Обучение модели."""
-        if self.cfg.training.training.logging.wandb.enabled:
+        if self.cfg.logging.wandb.enabled:
             wandb.init(
-                project=self.cfg.training.training.logging.wandb.project,
-                name=self.cfg.training.training.logging.wandb.name,
+                project=self.cfg.logging.wandb.project,
+                name=self.cfg.logging.wandb.name,
                 config={
                     "model_name": self.model_name,
                     "peft_method": self.cfg.peft.peft.method if self.cfg.peft.peft.enabled else "full",
                     **OmegaConf.to_container(self.cfg.model, resolve=True),
-                    **OmegaConf.to_container(self.cfg.training.training, resolve=True),
-                    **OmegaConf.to_container(self.cfg.peft.peft, resolve=True)
+                    **OmegaConf.to_container(self.cfg.training, resolve=True),
+                    **OmegaConf.to_container(self.cfg.peft, resolve=True)
                 }
             )
         
@@ -253,12 +260,6 @@ class SecurityModelTrainer:
             eval_dataset = None
         else:
             eval_dataset = eval_dataset["validation"]
-        
-        # Устанавливаем более частые логи
-        training_args.logging_steps = 1  # Логируем каждый шаг
-        training_args.logging_first_step = True
-        training_args.output_dir = self.cfg.paths.checkpoints_dir
-        training_args.logging_dir = self.cfg.paths.training_logs_dir
         
         # Убедимся, что TensorBoard включен
         if "tensorboard" not in training_args.report_to:
@@ -321,7 +322,7 @@ class SecurityModelTrainer:
         # Закрываем TensorBoard writer
         self.writer.close()
         
-        if self.cfg.training.training.logging.wandb.enabled:
+        if self.cfg.logging.wandb.enabled:
             wandb.finish()
         
         print("\n=== Обучение завершено ===")
@@ -360,25 +361,37 @@ class SecurityModelTrainer:
         trainer.tokenizer = AutoTokenizer.from_pretrained(path)
         return trainer
 
-@hydra.main(version_base=None, config_path="../configs", config_name="config")
+@hydra.main(version_base=None, config_path="../configs", config_name="base")
 def main(cfg: DictConfig):
     # Загружаем конфигурацию
     print("Loading configuration...")
     print(OmegaConf.to_yaml(cfg))
     
-    # Создаем необходимые директории
-    for dir_path in [
+    # Проверяем и создаем все необходимые директории
+    required_dirs = [
+        cfg.paths.models_dir,
         cfg.paths.checkpoints_dir,
         cfg.paths.adapters_dir,
         cfg.paths.tokenizer_dir,
+        cfg.paths.logs_dir,
         cfg.paths.tensorboard_dir,
-        cfg.paths.training_logs_dir
-    ]:
-        Path(dir_path).mkdir(parents=True, exist_ok=True)
+        cfg.paths.training_logs_dir,
+        cfg.paths.evaluation_dir,
+        cfg.paths.dataset_dir
+    ]
+    
+    print("\nChecking and creating directories...")
+    for dir_path in required_dirs:
+        path = Path(dir_path)
+        if not path.exists():
+            print(f"Creating directory: {path}")
+            path.mkdir(parents=True, exist_ok=True)
+        else:
+            print(f"Directory exists: {path}")
     
     # Загружаем датасет
-    print("Loading dataset...")
-    dataset_path = Path(cfg.dataset.output_dir)
+    print("\nLoading dataset...")
+    dataset_path = Path(cfg.paths.dataset_dir)
     
     print(f"Looking for dataset files in: {dataset_path}")
     
@@ -402,8 +415,8 @@ def main(cfg: DictConfig):
     tokenizer = AutoTokenizer.from_pretrained(cfg.model.model.name)
     tokenizer.pad_token = tokenizer.eos_token
     
-    train_dataset = SecurityDataset(train_examples, tokenizer, cfg.training.training.max_length)
-    eval_dataset = SecurityDataset(eval_examples, tokenizer, cfg.training.training.max_length)
+    train_dataset = SecurityDataset(train_examples, tokenizer, cfg.model.model.training.max_length)
+    eval_dataset = SecurityDataset(eval_examples, tokenizer, cfg.model.model.training.max_length)
     
     # Создаем DatasetDict
     datasets = DatasetDict({

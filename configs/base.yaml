@@ -1,0 +1,37 @@
+# Base configuration
+defaults:
+  - _self_  # This ensures base.yaml is loaded first
+  - model: base
+  - training: base
+  - peft: base
+  - dataset: base
+  - evaluation: base
+  - logging: base
+
+# Paths configuration
+paths:
+  base_dir: .  # Use current directory as base
+  models_dir: ${paths.base_dir}/models
+  checkpoints_dir: ${paths.models_dir}/checkpoints
+  adapters_dir: ${paths.models_dir}/adapters
+  tokenizer_dir: ${paths.models_dir}/tokenizer
+  dataset_dir: ${paths.base_dir}/data/processed
+  logs_dir: ${paths.base_dir}/logs
+  tensorboard_dir: ${paths.logs_dir}/tensorboard
+  training_logs_dir: ${paths.logs_dir}/training
+  evaluation_dir: ${paths.logs_dir}/evaluation
+
+# Environment variables (optional)
+env:
+  NVD_API_KEY: ${oc.env:NVD_API_KEY,null}  # Optional API key for CVE data
+  MITRE_ATTACK_URL: ${oc.env:MITRE_ATTACK_URL,https://attack.mitre.org/enterprise/enterprise.json}
+
+# Logging configuration
+logging:
+  wandb:
+    enabled: false
+    project: security-llm
+    name: ${now:%Y-%m-%d_%H-%M-%S}
+  tensorboard:
+    enabled: true
+    log_dir: ${paths.tensorboard_dir} 

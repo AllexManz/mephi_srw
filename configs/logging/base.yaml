@@ -1,0 +1,19 @@
+# Base logging configuration
+logging:
+  # General logging settings
+  logging_steps: 10
+  logging_first_step: true
+  report_to:
+    - tensorboard
+    - wandb
+  
+  # TensorBoard settings
+  tensorboard:
+    enabled: true
+    log_dir: ${paths.tensorboard_dir}
+  
+  # Weights & Biases settings
+  wandb:
+    enabled: false
+    project: security-llm
+    name: ${now:%Y-%m-%d_%H-%M-%S} 
