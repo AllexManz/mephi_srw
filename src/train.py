@@ -149,7 +149,7 @@ class SecurityModelTrainer:
         self.model = self._setup_model()
         
         # Инициализация TensorBoard
-        self.writer = SummaryWriter(log_dir=os.path.join(output_dir, "tensorboard"))
+        self.writer = SummaryWriter(log_dir=self.cfg.paths.tensorboard_dir)
     
     def _setup_model(self) -> PreTrainedModel:
         """Initialize the model with proper training setup."""
@@ -223,7 +223,7 @@ class SecurityModelTrainer:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         
         return TrainingArguments(
-            output_dir=self.cfg.paths.output_dir,
+            output_dir=self.cfg.paths.checkpoints_dir,
             num_train_epochs=self.cfg.training.training.num_train_epochs,
             per_device_train_batch_size=self.cfg.training.training.per_device_train_batch_size,
             per_device_eval_batch_size=self.cfg.training.training.per_device_eval_batch_size,
@@ -238,7 +238,7 @@ class SecurityModelTrainer:
             no_cuda=not torch.cuda.is_available(),
             
             # Logging settings
-            logging_dir=self.cfg.training.training.logging.logging_dir,
+            logging_dir=self.cfg.paths.training_logs_dir,
             logging_steps=self.cfg.training.training.logging.logging_steps,
             logging_first_step=self.cfg.training.training.logging.logging_first_step,
             report_to=self.cfg.training.training.logging.report_to,
@@ -256,7 +256,7 @@ class SecurityModelTrainer:
             save_total_limit=self.cfg.training.training.save.save_total_limit,
             
             # Optimization settings
-            fp16=self.cfg.training.training.optimization.fp16 and torch.cuda.is_available(),  # Only enable fp16 if CUDA is available
+            fp16=self.cfg.training.training.optimization.fp16 and torch.cuda.is_available(),
             gradient_checkpointing=self.cfg.training.training.optimization.gradient_checkpointing,
             dataloader_num_workers=self.cfg.training.training.optimization.dataloader_num_workers,
             dataloader_pin_memory=self.cfg.training.training.optimization.dataloader_pin_memory,
@@ -303,6 +303,8 @@ class SecurityModelTrainer:
         # Устанавливаем более частые логи
         training_args.logging_steps = 1  # Логируем каждый шаг
         training_args.logging_first_step = True
+        training_args.output_dir = self.cfg.paths.checkpoints_dir  # Обновляем путь для сохранения чекпоинтов
+        training_args.logging_dir = self.cfg.paths.training_logs_dir  # Обновляем путь для логов
         
         trainer = Trainer(
             model=self.model,
@@ -323,6 +325,8 @@ class SecurityModelTrainer:
         print(f"Размер батча: {training_args.per_device_train_batch_size}")
         print(f"Накопление градиентов: {training_args.gradient_accumulation_steps}")
         print(f"Эффективный размер батча: {training_args.per_device_train_batch_size * training_args.gradient_accumulation_steps}")
+        print(f"Путь для чекпоинтов: {training_args.output_dir}")
+        print(f"Путь для логов: {training_args.logging_dir}")
         print("========================\n")
         
         self.writer.add_text("model_config", str(self.model.config))
@@ -344,16 +348,16 @@ class SecurityModelTrainer:
         # Сохранение модели
         print("\n=== Сохранение модели ===")
         if self.cfg.peft.peft.enabled:
-            save_path = os.path.join(self.output_dir, f"{self.cfg.peft.peft.method}_adapter")
+            save_path = os.path.join(self.cfg.paths.adapters_dir, f"{self.cfg.peft.peft.method}_adapter")
             print(f"Сохранение адаптера в {save_path}")
             trainer.model.save_pretrained(save_path)
         else:
-            save_path = os.path.join(self.output_dir, "full_model")
+            save_path = os.path.join(self.cfg.paths.checkpoints_dir, "full_model")
             print(f"Сохранение полной модели в {save_path}")
             trainer.model.save_pretrained(save_path)
         
-        print(f"Сохранение токенизатора в {self.output_dir}")
-        self.tokenizer.save_pretrained(self.output_dir)
+        print(f"Сохранение токенизатора в {self.cfg.paths.tokenizer_dir}")
+        self.tokenizer.save_pretrained(self.cfg.paths.tokenizer_dir)
         print("========================\n")
         
         # Закрываем TensorBoard writer
@@ -404,15 +408,19 @@ def main(cfg: DictConfig):
     print("Loading configuration...")
     print(OmegaConf.to_yaml(cfg))
     
-    # Создаем директорию для сохранения модели
-    output_dir = Path(cfg.paths.output_dir) / "checkpoints"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Создаем необходимые директории
+    for dir_path in [
+        cfg.paths.checkpoints_dir,
+        cfg.paths.adapters_dir,
+        cfg.paths.tokenizer_dir,
+        cfg.paths.tensorboard_dir,
+        cfg.paths.training_logs_dir
+    ]:
+        Path(dir_path).mkdir(parents=True, exist_ok=True)
     
     # Загружаем датасет
     print("Loading dataset...")
-    # Используем абсолютный путь относительно корня проекта
-    project_root = Path(__file__).parent.parent
-    dataset_path = project_root / cfg.dataset.output_dir
+    dataset_path = Path(cfg.dataset.output_dir)
     
     print(f"Looking for dataset files in: {dataset_path}")
     
@@ -436,7 +444,6 @@ def main(cfg: DictConfig):
     tokenizer = AutoTokenizer.from_pretrained(cfg.model.model.name)
     tokenizer.pad_token = tokenizer.eos_token
     
-    # Используем правильный путь к max_length
     train_dataset = SecurityDataset(train_examples, tokenizer, cfg.training.training.max_length)
     eval_dataset = SecurityDataset(eval_examples, tokenizer, cfg.training.training.max_length)
     
@@ -449,7 +456,7 @@ def main(cfg: DictConfig):
     # Инициализируем тренер
     trainer = SecurityModelTrainer(
         model_name=cfg.model.model.name,
-        output_dir=str(output_dir),
+        output_dir=cfg.paths.checkpoints_dir,
         cfg=cfg
     )
     

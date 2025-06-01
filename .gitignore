@@ -39,5 +39,25 @@ ENV/
 *.swo
 
 # Project specific
-models/checkpoints/
-*.log 
+# Ignore contents of model directories but keep the directories
+models/checkpoints/*
+models/adapters/*
+models/tokenizer/*
+!models/checkpoints/.gitkeep
+!models/adapters/.gitkeep
+!models/tokenizer/.gitkeep
+
+# Ignore contents of log directories but keep the directories
+logs/tensorboard/*
+logs/training/*
+!logs/tensorboard/.gitkeep
+!logs/training/.gitkeep
+
+# Cache and temporary files
+.cache/
+*.log
+*.pt
+*.bin
+*.ckpt
+*.pth
+*.safetensors 
