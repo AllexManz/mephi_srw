@@ -34,61 +34,11 @@ import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 import time  # Добавляем импорт в начало файла
 
-class PerplexityCallback(TrainerCallback):
-    """Callback для вычисления перплексии."""
-    
-    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
-        if metrics is not None and "eval_loss" in metrics:
-            perplexity = math.exp(metrics["eval_loss"])
-            metrics["eval_perplexity"] = perplexity
-
-class DetailedLoggingCallback(TrainerCallback):
-    """Callback для подробного логирования процесса обучения."""
-    
-    def __init__(self):
-        self.start_time = None
-        self.step_start_time = None
-        self.total_steps = None
-        self.current_epoch = 0
-        self.steps_per_epoch = 0
-    
-    def on_train_begin(self, args, state, control, **kwargs):
-        self.start_time = time.time()
-        print("\n=== Начало обучения ===")
-        print(f"Всего шагов: {state.max_steps}")
-        print(f"Размер батча: {args.per_device_train_batch_size}")
-        print(f"Накопление градиентов: {args.gradient_accumulation_steps}")
-        print(f"Всего батчей на эпоху: {len(kwargs['train_dataloader'])}")
-        print("=====================\n")
-    
-    def on_epoch_begin(self, args, state, control, **kwargs):
-        self.current_epoch += 1
-        self.step_start_time = time.time()
-        print(f"\n=== Эпоха {self.current_epoch} ===")
-    
-    def on_step_begin(self, args, state, control, **kwargs):
-        if state.global_step % args.logging_steps == 0:
-            elapsed = time.time() - self.step_start_time
-            print(f"\nШаг {state.global_step}/{state.max_steps} (эпоха {self.current_epoch})")
-            print(f"Время с начала шага: {elapsed:.2f}с")
-            print(f"Время с начала обучения: {(time.time() - self.start_time)/60:.2f}мин")
-    
-    def on_step_end(self, args, state, control, **kwargs):
-        if state.global_step % args.logging_steps == 0:
-            metrics = kwargs.get("metrics", {})
-            if metrics:
-                print(f"Loss: {metrics.get('loss', 'N/A'):.4f}")
-                if "learning_rate" in metrics:
-                    print(f"Learning rate: {metrics['learning_rate']:.2e}")
-            print(f"Скорость: {args.per_device_train_batch_size / (time.time() - self.step_start_time):.2f} батчей/с")
-            self.step_start_time = time.time()
-    
-    def on_epoch_end(self, args, state, control, **kwargs):
-        epoch_time = time.time() - self.step_start_time
-        print(f"\n=== Завершение эпохи {self.current_epoch} ===")
-        print(f"Время эпохи: {epoch_time/60:.2f}мин")
-        print(f"Общее время: {(time.time() - self.start_time)/60:.2f}мин")
-        print("=====================\n")
+from training.callbacks import (
+    PerplexityCallback,
+    DetailedLoggingCallback,
+    TensorBoardCallback
+)
 
 class SecurityDataset(Dataset):
     """Датасет для обучения модели на примерах безопасности."""
@@ -293,7 +243,8 @@ class SecurityModelTrainer:
         # Добавляем callbacks для логирования
         callbacks = [
             PerplexityCallback(),
-            DetailedLoggingCallback()
+            DetailedLoggingCallback(),
+            TensorBoardCallback(self.writer)
         ]
         
         # Если eval_dataset не передан, отключаем оценку
@@ -306,8 +257,12 @@ class SecurityModelTrainer:
         # Устанавливаем более частые логи
         training_args.logging_steps = 1  # Логируем каждый шаг
         training_args.logging_first_step = True
-        training_args.output_dir = self.cfg.paths.checkpoints_dir  # Обновляем путь для сохранения чекпоинтов
-        training_args.logging_dir = self.cfg.paths.training_logs_dir  # Обновляем путь для логов
+        training_args.output_dir = self.cfg.paths.checkpoints_dir
+        training_args.logging_dir = self.cfg.paths.training_logs_dir
+        
+        # Убедимся, что TensorBoard включен
+        if "tensorboard" not in training_args.report_to:
+            training_args.report_to = list(training_args.report_to) + ["tensorboard"]
         
         trainer = Trainer(
             model=self.model,
