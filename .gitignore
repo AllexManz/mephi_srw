@@ -39,7 +39,5 @@ ENV/
 *.swo
 
 # Project specific
-data/raw/
-data/processed/
 models/checkpoints/
 *.log 
