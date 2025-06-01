@@ -1,0 +1,137 @@
+training:
+  training:
+    max_length: 512
+    num_train_epochs: 3
+    per_device_train_batch_size: 4
+    per_device_eval_batch_size: 4
+    gradient_accumulation_steps: 8
+    learning_rate: 0.0002
+    weight_decay: 0.01
+    warmup_steps: 100
+    seed: 42
+    max_grad_norm: 1.0
+    lr_scheduler_type: cosine
+    evaluation:
+      evaluation_strategy: steps
+      eval_steps: 100
+      metric_for_best_model: eval_loss
+      greater_is_better: false
+      load_best_model_at_end: true
+    save:
+      save_strategy: steps
+      save_steps: 100
+      save_total_limit: 3
+    optimization:
+      fp16: false
+      gradient_checkpointing: true
+      dataloader_num_workers: 0
+      dataloader_pin_memory: false
+    logging:
+      logging_steps: 10
+      logging_first_step: true
+      logging_dir: ${paths.output_dir}/logs
+      report_to: tensorboard
+      wandb:
+        enabled: false
+        project: security-llm
+        name: ${now:%Y-%m-%d_%H-%M-%S}
+      tensorboard:
+        enabled: true
+        log_dir: ${paths.logs}/tensorboard
+    metrics:
+    - loss
+    - learning_rate
+    - epoch
+    - eval_loss
+    - eval_perplexity
+    - eval_samples_per_second
+    - eval_steps_per_second
+  paths:
+    output_dir: ${oc.env:OUTPUT_DIR,models}
+    logs: ${oc.env:LOGS_DIR,logs}
+    cache_dir: ${oc.env:CACHE_DIR,.cache}
+  dataset:
+    output_dir: ${oc.env:DATASET_OUTPUT_DIR,data/processed}
+    train_val_split_ratio: 0.8
+    cve:
+      days_lookback: 365
+      results_per_page: 100
+      max_results: 10000
+      min_cvss_score: 0.0
+    mitre_attack:
+      include_tactics: true
+      include_techniques: true
+    security_docs:
+      include: true
+      max_examples: 200
+  env:
+    NVD_API_KEY: ${oc.env:NVD_API_KEY}
+    MITRE_ATTACK_URL: ${oc.env:MITRE_ATTACK_URL}
+    DATASET_OUTPUT_DIR: ${oc.env:DATASET_OUTPUT_DIR,data/processed}
+    TRAINING_OUTPUT_DIR: ${oc.env:TRAINING_OUTPUT_DIR,models/checkpoints}
+    LOGS_DIR: ${oc.env:LOGS_DIR,logs}
+model:
+  model:
+    name: mistralai/Mistral-7B-v0.1
+    torch_dtype: float16
+    device_map: auto
+    trust_remote_code: true
+    use_cache: false
+    load_in_8bit: false
+    load_in_4bit: false
+  training:
+    per_device_train_batch_size: 1
+    per_device_eval_batch_size: 4
+    gradient_accumulation_steps: 8
+    learning_rate: 0.0002
+peft:
+  peft:
+    method: lora
+    enabled: true
+    adapter_path: null
+    common:
+      task_type: CAUSAL_LM
+      inference_mode: false
+    lora:
+      r: 8
+      alpha: 16
+      target_modules:
+      - q_proj
+      - k_proj
+      - v_proj
+      - o_proj
+      lora_dropout: 0.1
+      bias: none
+      modules_to_save: null
+paths:
+  output_dir: ${oc.env:OUTPUT_DIR,models}
+  logs: ${oc.env:LOGS_DIR,logs}
+  cache_dir: ${oc.env:CACHE_DIR,.cache}
+dataset:
+  output_dir: ${oc.env:DATASET_OUTPUT_DIR,data/processed}
+  train_val_split_ratio: 0.8
+  cve:
+    days_lookback: 365
+    results_per_page: 100
+    max_results: 10000
+    min_cvss_score: 0.0
+  mitre_attack:
+    include_tactics: true
+    include_techniques: true
+  security_docs:
+    include: true
+    max_examples: 200
+env:
+  NVD_API_KEY: ${oc.env:NVD_API_KEY}
+  MITRE_ATTACK_URL: ${oc.env:MITRE_ATTACK_URL}
+  DATASET_OUTPUT_DIR: ${oc.env:DATASET_OUTPUT_DIR,data/processed}
+  TRAINING_OUTPUT_DIR: ${oc.env:TRAINING_OUTPUT_DIR,models/checkpoints}
+  LOGS_DIR: ${oc.env:LOGS_DIR,logs}
+logging:
+  wandb:
+    enabled: false
+    project: security-llm
+    name: null
+  tensorboard:
+    enabled: true
+    log_dir: ${paths.logs}/tensorboard

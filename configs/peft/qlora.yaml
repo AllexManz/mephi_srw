@@ -1,0 +1,20 @@
+# QLoRA configuration
+peft:
+  method: qlora
+  enabled: true
+  adapter_path: null
+  common:
+    task_type: CAUSAL_LM
+    inference_mode: false
+  lora:
+    r: 8
+    alpha: 16
+    target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+    lora_dropout: 0.1
+    bias: none
+    modules_to_save: null
+  quantization:
+    load_in_4bit: true
+    bnb_4bit_compute_dtype: float16
+    bnb_4bit_quant_type: nf4
+    bnb_4bit_use_double_quant: true 

@@ -1,0 +1,20 @@
+defaults:
+  - default
+
+# Override settings for a small dataset
+dataset:
+  train_val_split_ratio: 0.8
+
+cve:
+  days_lookback: 7  # Только за последнюю неделю
+  results_per_page: 50
+  max_results: 100  # Ограниченное количество CVE
+  min_cvss_score: 7.0  # Только критические уязвимости
+
+mitre_attack:
+  include_tactics: true
+  include_techniques: false  # Только тактики
+
+security_docs:
+  include: true
+  max_examples: 10  # Меньше примеров из документации 

@@ -1,0 +1,36 @@
+# Конфигурация для оценки модели
+evaluation:
+  # Основные параметры
+  batch_size: 8
+  max_length: 512
+  max_new_tokens: 100
+  temperature: 0.7
+  num_workers: 4
+  
+  # Метрики для оценки
+  metrics:
+    - perplexity
+    - accuracy
+  
+  # Параметры генерации
+  generation:
+    do_sample: true
+    top_p: 0.9
+    top_k: 50
+    repetition_penalty: 1.2
+    no_repeat_ngram_size: 3
+  
+  # Настройки логирования
+  logging:
+    enabled: true
+    log_dir: "models/evaluation/logs"
+    save_predictions: true
+    save_metrics: true
+    
+  # Настройки вывода
+  output:
+    save_dir: "models/evaluation/results"
+    save_format: "json"
+    include_input: true
+    include_expected: true
+    include_metrics: true 

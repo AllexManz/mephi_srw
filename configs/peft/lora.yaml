@@ -1,0 +1,15 @@
+# LoRA configuration
+peft:
+  method: lora
+  enabled: true
+  adapter_path: null
+  common:
+    task_type: CAUSAL_LM
+    inference_mode: false
+  lora:
+    r: 8
+    alpha: 16
+    target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]  # Default for most models
+    lora_dropout: 0.1
+    bias: none
+    modules_to_save: null 

@@ -1,0 +1,18 @@
+# GPT-2 model configuration
+model:
+  name: gpt2
+  torch_dtype: float32  # GPT-2 works well with float32
+  device_map: auto
+  trust_remote_code: true
+  use_cache: false
+  load_in_8bit: false
+  load_in_4bit: false
+
+# Model-specific training settings
+training:
+  # GPT-2-specific training parameters
+  per_device_train_batch_size: 8  # GPT-2 is smaller, can use larger batch size
+  per_device_eval_batch_size: 8
+  gradient_accumulation_steps: 4
+  learning_rate: 5e-5  # GPT-2 typically needs lower learning rate
+  max_length: 1024  # GPT-2's context window 

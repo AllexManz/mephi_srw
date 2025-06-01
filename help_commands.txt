@@ -1,0 +1,38 @@
+python src/data/prepare_dataset.py dataset=full
+
+
+python src/train.py dataset=full
+
+Дополнительные опции для обучения:
+model=base - использовать базовую модель
+model=large - использовать большую модель
+train.batch_size=8 - изменить размер батча
+train.learning_rate=1e-5 - изменить скорость обучения
+train.num_epochs=3 - изменить количество эпох
+
+
+
+LoRA (самый простой и эффективный):
+python src/train.py peft.method=lora
+
+QLoRA (для больших моделей):
+python src/train.py peft.method=qlora model.name=mistralai/Mistral-7B-v0.1
+
+Prefix Tuning:
+python src/train.py peft.method=prefix_tuning
+
+P-Tuning:
+python src/train.py peft.method=p_tuning
+
+Prompt Tuning:
+python src/train.py peft.method=prompt_tuning
+
+Каждый метод имеет свои преимущества:
+LoRA: хороший баланс между качеством и эффективностью
+QLoRA: для работы с большими моделями на ограниченном железе
+Prefix/P-Tuning: для задач с ограниченным контекстом
+Prompt Tuning: для простых задач с малым количеством примеров
+
+
+Запустить TensorBoard для просмотра метрик:
+tensorboard --logdir models/checkpoints/tensorboard

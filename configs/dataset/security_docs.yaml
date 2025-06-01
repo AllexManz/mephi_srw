@@ -1,0 +1,19 @@
+# Security Documentation Configuration
+include: true  # Включить/выключить загрузку документации по безопасности
+max_examples: 1000  # Максимальное количество примеров из всех источников
+
+# Настройки для каждого источника
+sources:
+  nist:
+    enabled: true
+    max_examples: 200  # Максимальное количество примеров из NIST Framework
+    
+  mitre_cwe:
+    enabled: true
+    max_examples: 300  # Максимальное количество примеров из MITRE CWE
+    
+  owasp:
+    enabled: true
+    max_examples: 500  # Максимальное количество примеров из OWASP
+    include_top10: true  # Включить OWASP Top 10
+    include_cheat_sheets: true  # Включить OWASP Cheat Sheets 

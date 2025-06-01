@@ -1,0 +1,79 @@
+# Конфигурация для SIEM интеграции
+integration:
+  # Настройки Elasticsearch
+  elasticsearch:
+    hosts: ["http://localhost:9200"]
+    username: "elastic"
+    password: "changeme"
+    verify_certs: false
+    index_pattern: "security-events-*"
+    time_field: "@timestamp"
+    max_events_per_query: 100
+  
+  # Настройки алертов
+  alerts:
+    index_name: "security-alerts"
+    mapping:
+      mappings:
+        properties:
+          timestamp:
+            type: "date"
+          threat_level:
+            type: "keyword"
+          analysis:
+            type: "text"
+          events_count:
+            type: "integer"
+          events:
+            type: "nested"
+          metadata:
+            type: "object"
+          status:
+            type: "keyword"
+          status_updated_at:
+            type: "date"
+          status_comment:
+            type: "text"
+  
+  # Настройки мониторинга
+  monitoring:
+    interval: 300  # 5 минут
+    time_window: 10  # 10 минут
+    min_events_for_analysis: 1
+    max_events_per_analysis: 50
+  
+  # Настройки модели
+  model:
+    max_length: 2048
+    temperature: 0.7
+    max_new_tokens: 200
+    generation:
+      do_sample: true
+      top_p: 0.9
+      top_k: 50
+      repetition_penalty: 1.2
+      no_repeat_ngram_size: 3
+  
+  # Настройки логирования
+  logging:
+    enabled: true
+    log_dir: "logs/integration"
+    level: "INFO"
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    
+  # Настройки уведомлений
+  notifications:
+    enabled: false
+    methods:
+      - email
+      - slack
+    email:
+      smtp_server: "smtp.gmail.com"
+      smtp_port: 587
+      username: ""
+      password: ""
+      from_addr: ""
+      to_addrs: []
+    slack:
+      webhook_url: ""
+      channel: "#security-alerts" 
