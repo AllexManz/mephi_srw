@@ -1,0 +1,22 @@
+peft:
+  enabled: true
+  method: prefix_tuning
+  adapter_path: null
+
+  # Common PEFT settings
+  common:
+    task_type: CAUSAL_LM
+    inference_mode: false
+
+  # Prefix Tuning specific settings
+  prefix_tuning:
+    num_virtual_tokens: 20  # Number of virtual tokens to use for prefix
+    encoder_hidden_size: 512  # Hidden size of the prefix encoder
+    prefix_projection: true  # Whether to use prefix projection
+    prefix_projection_hidden_size: 512  # Hidden size for prefix projection if enabled
+    prefix_projection_dropout: 0.1  # Dropout rate for prefix projection
+    prefix_projection_activation: "gelu"  # Activation function for prefix projection
+    prefix_projection_norm: true  # Whether to use layer normalization in prefix projection
+    prefix_projection_residual: true  # Whether to use residual connection in prefix projection
+    prefix_projection_use_bias: true  # Whether to use bias in prefix projection
+    prefix_projection_use_scale: true

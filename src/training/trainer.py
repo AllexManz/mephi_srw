@@ -35,7 +35,7 @@ from .callbacks import PerplexityCallback
 from .utils import setup_model_for_training, setup_tokenizer, ensure_output_dir
 
 class SecurityModelTrainer:
-    """Тренер для обучения модели безопасности с поддержкой различных методов PEFT."""
+    """Тренер для обучения модели безопасности с поддержкой различных методов fine-tuning."""
     
     def __init__(
         self,
@@ -53,16 +53,24 @@ class SecurityModelTrainer:
         # Инициализация модели
         self.model = setup_model_for_training(model_name, cfg)
         
-        # Настройка PEFT если требуется
-        if self.cfg.peft.enabled:
+        # Настройка метода fine-tuning
+        if self.cfg.training.method == "full":
+            # Full fine-tuning - ничего не делаем, модель уже готова
+            pass
+        elif self.cfg.training.method in ["lora", "qlora", "prefix_tuning", "prompt_tuning"]:
             self.model = self._setup_peft()
+        else:
+            raise ValueError(
+                f"Unknown training method: {self.cfg.training.method}. "
+                "Supported methods are: full, lora, qlora, prefix_tuning, prompt_tuning"
+            )
         
         # Инициализация TensorBoard
         self.writer = SummaryWriter(log_dir=self.cfg.paths.tensorboard_dir)
     
     def _setup_peft(self) -> Union[PeftModel, AutoModelForCausalLM]:
         """Настройка PEFT адаптера в зависимости от выбранного метода."""
-        method = self.cfg.peft.method.lower()
+        method = self.cfg.training.method.lower()
         
         if method == "lora":
             config = LoraConfig(
@@ -77,6 +85,21 @@ class SecurityModelTrainer:
             )
         
         elif method == "qlora":
+            # Настройка квантизации для QLoRA
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True
+            )
+            
+            # Применяем квантизацию к модели
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_name,
+                quantization_config=quantization_config,
+                device_map="auto"
+            )
+            
             config = LoraConfig(
                 r=self.cfg.peft.qlora.r,
                 lora_alpha=self.cfg.peft.qlora.alpha,
@@ -173,16 +196,19 @@ class SecurityModelTrainer:
     ):
         """Обучение модели."""
         if self.cfg.training.logging.wandb.enabled:
+            config_dict = {
+                "model_name": self.model_name,
+                "training_method": self.cfg.training.method
+            }
+            if self.cfg.training.method != "full":
+                config_dict.update(OmegaConf.to_container(self.cfg.peft, resolve=True))
+            config_dict.update(OmegaConf.to_container(self.cfg.model, resolve=True))
+            config_dict.update(OmegaConf.to_container(self.cfg.training, resolve=True))
+            
             wandb.init(
                 project=self.cfg.training.logging.wandb.project,
                 name=self.cfg.training.logging.wandb.name,
-                config={
-                    "model_name": self.model_name,
-                    "peft_method": self.cfg.peft.method if self.cfg.peft.enabled else "full",
-                    **OmegaConf.to_container(self.cfg.model, resolve=True),
-                    **OmegaConf.to_container(self.cfg.training, resolve=True),
-                    **OmegaConf.to_container(self.cfg.peft, resolve=True)
-                }
+                config=config_dict
             )
         
         training_args = self._setup_training_args()
@@ -223,11 +249,10 @@ class SecurityModelTrainer:
                 self.writer.add_scalar(f"final/{metric_name}", value)
         
         # Сохранение модели
-        if self.cfg.peft.enabled:
-            trainer.model.save_pretrained(os.path.join(self.output_dir, f"{self.cfg.peft.method}_adapter"))
+        if self.cfg.training.method == "full":
+            self.model.save_pretrained(os.path.join(self.output_dir, "full_model"))
         else:
-            trainer.model.save_pretrained(os.path.join(self.output_dir, "full_model"))
-        
+            self.model.save_pretrained(os.path.join(self.output_dir, f"{self.cfg.training.method}_adapter"))
         self.tokenizer.save_pretrained(self.output_dir)
         
         # Закрываем TensorBoard writer
@@ -238,10 +263,10 @@ class SecurityModelTrainer:
     
     def save_model(self, path: str):
         """Сохранение модели."""
-        if self.cfg.peft.enabled:
-            self.model.save_pretrained(os.path.join(path, f"{self.cfg.peft.method}_adapter"))
-        else:
+        if self.cfg.training.method == "full":
             self.model.save_pretrained(os.path.join(path, "full_model"))
+        else:
+            self.model.save_pretrained(os.path.join(path, f"{self.cfg.training.method}_adapter"))
         self.tokenizer.save_pretrained(path)
     
     @classmethod
@@ -253,16 +278,16 @@ class SecurityModelTrainer:
         """Загрузка сохраненной модели."""
         trainer = cls(cfg.model.model.name, path, cfg)
         
-        if cfg.peft.enabled:
-            trainer.model = PeftModel.from_pretrained(
-                trainer.model,
-                os.path.join(path, f"{cfg.peft.method}_adapter")
-            )
-        else:
+        if cfg.training.method == "full":
             trainer.model = AutoModelForCausalLM.from_pretrained(
                 os.path.join(path, "full_model"),
                 torch_dtype=getattr(torch, cfg.model.torch_dtype),
                 device_map=cfg.model.device_map
+            )
+        else:
+            trainer.model = PeftModel.from_pretrained(
+                trainer.model,
+                os.path.join(path, f"{cfg.training.method}_adapter")
             )
         
         trainer.tokenizer = AutoTokenizer.from_pretrained(path)

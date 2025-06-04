@@ -1,0 +1,21 @@
+# Prompt Tuning configuration
+peft:
+  enabled: true
+  method: prompt_tuning
+  adapter_path: null
+
+  # Common PEFT settings
+  common:
+    task_type: CAUSAL_LM
+    inference_mode: false
+
+  # Prompt Tuning specific settings
+  prompt_tuning:
+    num_virtual_tokens: 20  # Number of virtual tokens to use for prompt tuning
+    prompt_tuning_init: TEXT  # Can be TEXT or RANDOM
+    token_dim: 512  # Dimension of the token embeddings
+    prompt_tuning_init_text: "Initialize prompt tuning with this text"  # Only used if prompt_tuning_init is TEXT
+    tokenizer_name: null  # Optional: specific tokenizer to use for initialization
+    max_position_embeddings: 2048  # Maximum sequence length
+    layers_to_transform: null  # Optional: specific layers to apply prompt tuning to
+    layers_pattern: null  # Optional: pattern to match layers for transformation 
