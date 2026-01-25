@@ -4,14 +4,15 @@ Main evaluator module for security language model.
 
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Any
+import time
 import torch
 from torch.utils.data import DataLoader
 from transformers import PreTrainedModel, PreTrainedTokenizer
 from omegaconf import DictConfig
 from torch.utils.tensorboard import SummaryWriter
 
-from .metrics import calculate_perplexity, calculate_accuracy
+from .metrics import calculate_perplexity, calculate_accuracy, calculate_security_metrics
 from ..training.dataset import SecurityDataset
 
 class SecurityModelEvaluator:
@@ -102,11 +103,7 @@ class SecurityModelEvaluator:
             metrics_file = self.output_dir / "evaluation_metrics.json"
             with open(metrics_file, "w", encoding="utf-8") as f:
                 json.dump(metrics, f, indent=2, ensure_ascii=False)
-        
-        # Закрываем TensorBoard writer
-        if self.writer:
-            self.writer.close()
-        
+
         return metrics
     
     def generate_responses(
@@ -158,6 +155,7 @@ class SecurityModelEvaluator:
             ).to(device)
             
             # Генерируем ответ
+            start_time = time.perf_counter()
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
@@ -166,6 +164,7 @@ class SecurityModelEvaluator:
                     num_return_sequences=1,
                     pad_token_id=self.tokenizer.eos_token_id
                 )
+            response_time = time.perf_counter() - start_time
             
             # Декодируем ответ
             generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
@@ -182,7 +181,8 @@ class SecurityModelEvaluator:
                 "context": example.get("context", ""),
                 "input": example["input"],
                 "expected_output": example["output"],
-                "generated_output": generated_answer
+                "generated_output": generated_answer,
+                "response_time_seconds": response_time
             }
             results.append(result)
         
@@ -192,4 +192,30 @@ class SecurityModelEvaluator:
             with open(results_file, "w", encoding="utf-8") as f:
                 json.dump(results, f, indent=2, ensure_ascii=False)
         
-        return results 
+        return results
+
+    def evaluate_security_metrics(
+        self,
+        examples: List[Dict[str, str]],
+        responses: List[Dict[str, Any]]
+    ) -> Dict[str, Optional[float]]:
+        """Calculate and log security-specific metrics."""
+        metrics = calculate_security_metrics(examples, responses)
+        if self.writer:
+            for name, value in metrics.items():
+                if value is not None:
+                    self.writer.add_scalar(f"evaluation/{name}", value)
+        return metrics
+
+    def save_metrics(self, metrics: Dict[str, Any], filename: str = "evaluation_metrics.json") -> None:
+        """Save metrics to the evaluation output directory."""
+        if not self.output_dir:
+            return
+        metrics_file = self.output_dir / filename
+        with open(metrics_file, "w", encoding="utf-8") as f:
+            json.dump(metrics, f, indent=2, ensure_ascii=False)
+
+    def close(self) -> None:
+        """Close any open writers."""
+        if self.writer:
+            self.writer.close()

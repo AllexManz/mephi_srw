@@ -1,0 +1,29 @@
+defaults:
+  - /integration/default
+
+pipeline:
+  mlflow:
+    enabled: true
+    tracking_uri: "file:./mlruns"
+    experiment_name: "security-llm"
+    run_name: ${now:%Y-%m-%d_%H-%M-%S}
+
+  siem:
+    time_window_minutes: 60
+    max_events: 1000
+    query: null
+
+  dataset:
+    output_dir: ${paths.dataset_dir}
+    train_val_split_ratio: ${dataset.dataset.train_val_split_ratio}
+    seed: 42
+
+  stage1:
+    peft_config: qlora
+    training_method: sft
+    adapters_dir: ${paths.adapters_dir}/stage1_qlora
+
+  stage2:
+    peft_config: qlora
+    training_method: gspo
+    adapters_dir: ${paths.adapters_dir}/stage2_gspo

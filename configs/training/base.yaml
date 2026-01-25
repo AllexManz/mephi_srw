@@ -1,5 +1,8 @@
 # Base training configuration
 training:
+  # Training method: sft | grpo | gspo
+  method: sft
+
   # Training loop settings
   num_train_epochs: 3
   seed: 42
@@ -28,3 +31,22 @@ training:
     metric_for_best_model: eval_loss
     greater_is_better: false
     load_best_model_at_end: true
+
+  # Policy optimization settings (used for GRPO/GSPO)
+  policy_optimization:
+    kl_coef: 0.1
+    temperature: 1.0
+
+  # FSDP settings
+  fsdp:
+    enabled: false
+    sharding_strategy: full_shard
+    auto_wrap: true
+    backward_prefetch: backward_pre
+    state_dict_type: full_state_dict
+    use_orig_params: true
+    sync_module_states: true
+    cpu_offload: false
+    min_num_params: 0
+    mixed_precision: null
+    transformer_layer_cls: []

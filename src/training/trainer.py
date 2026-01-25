@@ -33,6 +33,7 @@ from torch.utils.tensorboard import SummaryWriter
 from .dataset import SecurityDataset
 from .callbacks import PerplexityCallback
 from .utils import setup_model_for_training, setup_tokenizer, ensure_output_dir
+from .policy import PolicyOptimTrainer, create_reference_model
 
 class SecurityModelTrainer:
     """Тренер для обучения модели безопасности с поддержкой различных методов fine-tuning."""
@@ -146,6 +147,27 @@ class SecurityModelTrainer:
         if self.cfg.logging.wandb.enabled:
             report_to.append("wandb")
 
+        fsdp = None
+        fsdp_config = None
+        fsdp_cfg = self.cfg.training.training.get("fsdp", {})
+        if fsdp_cfg.get("enabled", False):
+            strategy = fsdp_cfg.get("sharding_strategy", "full_shard")
+            fsdp = f"{strategy} auto_wrap" if fsdp_cfg.get("auto_wrap", True) else strategy
+            fsdp_config = {
+                "backward_prefetch": fsdp_cfg.get("backward_prefetch", "backward_pre"),
+                "state_dict_type": fsdp_cfg.get("state_dict_type", "full_state_dict"),
+                "use_orig_params": fsdp_cfg.get("use_orig_params", True),
+                "sync_module_states": fsdp_cfg.get("sync_module_states", True),
+                "cpu_offload": fsdp_cfg.get("cpu_offload", False),
+                "min_num_params": fsdp_cfg.get("min_num_params", 0)
+            }
+            layer_cls = fsdp_cfg.get("transformer_layer_cls", [])
+            if layer_cls:
+                fsdp_config["transformer_layer_cls_to_wrap"] = list(layer_cls)
+            mixed_precision = fsdp_cfg.get("mixed_precision")
+            if mixed_precision in {"fp16", "bf16"}:
+                fsdp_config["mixed_precision"] = mixed_precision
+
         return TrainingArguments(
             output_dir=str(self.output_dir),
             num_train_epochs=self.cfg.training.training.num_train_epochs,
@@ -185,6 +207,8 @@ class SecurityModelTrainer:
             # Дополнительные настройки
             seed=self.cfg.training.training.seed,
             remove_unused_columns=False,  # Важно для работы с нашим датасетом
+            fsdp=fsdp,
+            fsdp_config=fsdp_config
         )
     
     def train(
@@ -193,6 +217,10 @@ class SecurityModelTrainer:
         eval_dataset: Optional[DatasetDict] = None
     ):
         """Обучение модели."""
+        training_method = self.cfg.training.training.get("method", "sft").lower()
+        fsdp_enabled = self.cfg.training.training.get("fsdp", {}).get("enabled", False)
+        if fsdp_enabled and self.cfg.peft.peft.enabled and self.cfg.peft.peft.method == "qlora":
+            print("Warning: FSDP with QLoRA may be unstable. Consider disabling FSDP or QLoRA.")
         if self.cfg.logging.wandb.enabled:
             wandb.init(
                 project=self.cfg.logging.wandb.project,
@@ -218,7 +246,13 @@ class SecurityModelTrainer:
         else:
             eval_dataset = eval_dataset["validation"]
         
-        trainer = Trainer(
+        trainer_cls = Trainer
+        ref_model = None
+        if training_method in {"grpo", "gspo"}:
+            trainer_cls = PolicyOptimTrainer
+            ref_model = create_reference_model(self.model_name, self.cfg)
+
+        trainer = trainer_cls(
             model=self.model,
             args=training_args,
             train_dataset=train_dataset["train"],
@@ -227,7 +261,10 @@ class SecurityModelTrainer:
                 tokenizer=self.tokenizer,
                 mlm=False
             ),
-            callbacks=callbacks
+            callbacks=callbacks,
+            ref_model=ref_model,
+            policy_method=training_method,
+            policy_config=self.cfg.training.training.get("policy_optimization", {})
         )
         
         # Логируем информацию о модели

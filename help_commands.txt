@@ -18,6 +18,21 @@ python src/train.py peft.method=lora
 QLoRA (для больших моделей):
 python src/train.py peft.method=qlora model.model.name=mistralai/Mistral-7B-v0.1
 
+GRPO:
+python src/train.py training.training.method=grpo
+
+GSPO:
+python src/train.py training.training.method=gspo
+
+FSDP (включить):
+python src/train.py training.training.fsdp.enabled=true
+
+FSDP (GPT-2 preset):
+python src/train.py training=fsdp_gpt2
+
+FSDP (Mistral preset):
+python src/train.py training=fsdp_mistral
+
 Prefix Tuning:
 python src/train.py peft.method=prefix_tuning
 
@@ -40,3 +55,16 @@ python src/run_siem_simple.py
 
 SIEM мониторинг:
 python src/run_siem.py --mode monitor --interval 60 --time-window 5
+
+
+Pipeline (SIEM -> QLoRA -> GSPO -> Eval):
+python src/train_pipeline.py
+
+MLflow локально:
+export MLFLOW_TRACKING_URI=file:./mlruns
+python src/train_pipeline.py
+
+MLflow сервер (docker-compose):
+docker compose up -d
+export MLFLOW_TRACKING_URI=http://localhost:5000
+python src/train_pipeline.py

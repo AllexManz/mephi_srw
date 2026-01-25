@@ -1,0 +1,10 @@
+defaults:
+  - base
+
+training:
+  fsdp:
+    enabled: true
+    sharding_strategy: full_shard
+    auto_wrap: true
+    transformer_layer_cls:
+      - MistralDecoderLayer

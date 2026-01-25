@@ -92,8 +92,14 @@ def main(cfg: DictConfig):
     # Генерация ответов на примерах
     print("\nGenerating responses for examples...")
     responses = evaluator.generate_responses(eval_examples)
+
+    # Расчет и логирование специализированных метрик
+    security_metrics = evaluator.evaluate_security_metrics(eval_examples, responses)
+    metrics.update(security_metrics)
+    evaluator.save_metrics(metrics)
     
     print(f"\nResults saved to {cfg.paths.evaluation_dir}")
+    evaluator.close()
     print("Evaluation completed!")
 
 if __name__ == "__main__":

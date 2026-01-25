@@ -15,6 +15,9 @@ def setup_model_for_training(
     device_map: str = "auto"
 ) -> AutoModelForCausalLM:
     """Подготовка модели для обучения с учетом квантизации."""
+    fsdp_enabled = cfg.training.training.get("fsdp", {}).get("enabled", False)
+    if fsdp_enabled:
+        device_map = None
     # Настройка квантизации если требуется
     quantization_config = None
     if (

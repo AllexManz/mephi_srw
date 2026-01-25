@@ -95,6 +95,18 @@ python src/train.py model=mistral peft=none
 python src/train.py model=mistral peft=lora training.training.per_device_train_batch_size=2
 ```
 
+### RL стадия (GSPO/GRPO)
+
+RL‑стадия обучает модель с KL‑регуляризацией относительно референс‑модели.
+```bash
+python src/train.py training.training.method=gspo
+python src/train.py training.training.method=grpo
+```
+
+Параметры RL‑стадии находятся в `configs/training/base.yaml`:
+- `training.policy_optimization.kl_coef` — вес KL‑регуляризации
+- `training.policy_optimization.temperature` — температура в KL‑терме
+
 ### Мониторинг обучения
 
 1. TensorBoard:
@@ -134,6 +146,80 @@ python src/run_siem_simple.py
 ```bash
 python src/run_siem.py --mode monitor --interval 60 --time-window 5
 python src/run_siem.py --mode analyze --start-time 2025-01-01T00:00:00
+```
+
+## FSDP обучение
+
+Запуск под FSDP лучше делать через `torchrun`:
+```bash
+torchrun --nproc_per_node=2 src/train.py training=fsdp_gpt2
+```
+
+Для Mistral:
+```bash
+torchrun --nproc_per_node=2 src/train.py training=fsdp_mistral model=mistral
+```
+
+## Пайплайн обучения
+
+Полный пайплайн: сбор событий из SIEM → обработка → QLoRA → GSPO → оценка.
+```bash
+python src/train_pipeline.py
+```
+
+## Метрики оценки
+
+Считаются и логируются в `evaluation_metrics.json` и TensorBoard:
+
+- Average Reward
+- Threat Detection Accuracy
+- False Positive Rate
+- False Negative Rate
+- Expert Preference Rate
+- MITRE ATT&CK Coverage
+- Sequential Event Handling
+- Average Response Time
+- Multi-stage Attack Detection
+- Temporal Context Accuracy
+
+### Как считаются метрики
+
+- Average Reward — среднее по полю `reward` (или числу, извлеченному из ответа).
+- Threat Detection Accuracy — доля совпадений бинарного класса «угроза»/«нет угрозы» по `threat_level` (high/medium → угроза, low → нет).
+- False Positive Rate — FP / N, где N — число негативных примеров.
+- False Negative Rate — FN / P, где P — число позитивных примеров.
+- Expert Preference Rate — доля точных совпадений с `expert_preferred_output`.
+- MITRE ATT&CK Coverage — доля найденных ID (TXXXX[.XXX]) от ожидаемого списка `mitre_attack`.
+- Sequential Event Handling — доля примеров, где в ответе упомянут `sequence_index`.
+- Average Response Time — среднее `response_time_seconds` (из генерации).
+- Multi-stage Attack Detection — доля примеров, где в ответе присутствует хотя бы один из `attack_stages`.
+- Temporal Context Accuracy — доля примеров, где в ответе присутствует `temporal_label`.
+
+Если поле отсутствует — метрика не считается и сохраняется как `null`.
+
+### Требуемые поля в eval.json
+
+- `reward`
+- `threat_level` или `is_threat`
+- `expert_preferred_output`
+- `mitre_attack` (List[str])
+- `sequence_id`, `sequence_index`
+- `attack_stages` (List[str])
+- `temporal_label`
+
+## MLflow
+
+По умолчанию используется локальное хранилище (`file:./mlruns`). Можно указать внешний сервер:
+```bash
+export MLFLOW_TRACKING_URI=http://localhost:5000
+python src/train_pipeline.py
+```
+
+Для полноценной интеграции с внешним артефакт-хранилищем используйте `docker-compose`:
+```bash
+docker compose up -d
+export MLFLOW_TRACKING_URI=http://localhost:5000
+python src/train_pipeline.py
 ```
 
 ## Требования
