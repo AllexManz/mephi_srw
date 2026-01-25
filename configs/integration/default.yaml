@@ -1,0 +1,34 @@
+defaults:
+  - /base
+
+elasticsearch:
+  hosts:
+    - http://localhost:9200
+  username: null
+  password: null
+  verify_certs: false
+  index_pattern: "*"
+  time_field: "@timestamp"
+  max_events_per_query: 500
+
+monitoring:
+  interval: 60
+  time_window: 5
+
+alerts:
+  index_name: "security-alerts"
+  mapping:
+    mappings:
+      properties:
+        timestamp:
+          type: date
+        threat_level:
+          type: keyword
+        analysis:
+          type: text
+        events_count:
+          type: integer
+        status:
+          type: keyword
+        status_updated_at:
+          type: date

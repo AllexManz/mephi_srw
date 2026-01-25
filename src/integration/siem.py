@@ -44,7 +44,7 @@ class SIEMIntegration:
         self.alert_handler = AlertHandler(
             es_client=self.es_client,
             cfg=cfg,
-            log_dir=cfg.logging.log_dir
+            log_dir=cfg.paths.logs_dir
         )
     
     def _setup_logger(self) -> logging.Logger:

@@ -28,10 +28,12 @@ class EventProcessor:
         self.time_field = cfg.elasticsearch.time_field
         self.max_events = cfg.elasticsearch.max_events_per_query
         
-        # Настройки модели
-        self.max_length = cfg.model.max_length
-        self.temperature = cfg.model.temperature
-        self.max_new_tokens = cfg.model.max_new_tokens
+        # Настройки модели и генерации
+        eval_cfg = cfg.evaluation.evaluation if "evaluation" in cfg.evaluation else cfg.evaluation
+        gen_cfg = eval_cfg.generation if "generation" in eval_cfg else eval_cfg
+        self.max_length = cfg.model.model.training.max_length if "model" in cfg.model else eval_cfg.max_length
+        self.temperature = eval_cfg.temperature
+        self.max_new_tokens = gen_cfg.max_new_tokens
     
     def get_recent_events(
         self,

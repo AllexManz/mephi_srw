@@ -66,15 +66,9 @@ MITRE_ATTACK_URL=https://attack.mitre.org/enterprise/attack.json
 
 ### Подготовка данных
 
-1. Соберите датасет:
+1. Подготовьте датасет:
 ```bash
-python src/data/collect_cve.py  # Сбор данных CVE
-python src/data/collect_mitre.py  # Сбор данных MITRE ATT&CK
-```
-
-2. Обработайте данные:
-```bash
-python src/data/process_dataset.py
+python src/data/prepare_dataset.py dataset=full
 ```
 
 ### Обучение
@@ -124,10 +118,23 @@ ls models/adapters/
 
 Проект использует Hydra для управления конфигурацией. Основные конфигурационные файлы:
 
-- `configs/config.yaml` - основная конфигурация
+- `configs/base.yaml` - основная конфигурация
 - `configs/model/` - конфигурации моделей
 - `configs/peft/` - конфигурации методов PEFT
 - `configs/training/` - параметры обучения
+
+## Интеграция с SIEM
+
+Минимальный запуск анализа последних событий:
+```bash
+python src/run_siem_simple.py
+```
+
+Режим мониторинга/исторического анализа:
+```bash
+python src/run_siem.py --mode monitor --interval 60 --time-window 5
+python src/run_siem.py --mode analyze --start-time 2025-01-01T00:00:00
+```
 
 ## Требования
 

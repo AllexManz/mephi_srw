@@ -5,7 +5,6 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 from tqdm import tqdm
-from dataset import SecurityDataset
 import os
 from dotenv import load_dotenv
 import hydra
@@ -14,7 +13,6 @@ from omegaconf import DictConfig, OmegaConf
 # Загружаем переменные окружения из .env файла
 load_dotenv()
 
-@hydra.main(version_base=None, config_path="../configs", config_name="base")
 class DatasetPreparation:
     def __init__(self, cfg: DictConfig):
         self.cfg = cfg

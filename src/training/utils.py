@@ -17,7 +17,21 @@ def setup_model_for_training(
     """Подготовка модели для обучения с учетом квантизации."""
     # Настройка квантизации если требуется
     quantization_config = None
-    if cfg.model.model.load_in_4bit:
+    if (
+        cfg.peft.peft.method == "qlora"
+        and "quantization" in cfg.peft.peft
+        and cfg.peft.peft.quantization.load_in_4bit
+    ):
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=getattr(
+                torch,
+                cfg.peft.peft.quantization.bnb_4bit_compute_dtype
+            ),
+            bnb_4bit_quant_type=cfg.peft.peft.quantization.bnb_4bit_quant_type,
+            bnb_4bit_use_double_quant=cfg.peft.peft.quantization.bnb_4bit_use_double_quant
+        )
+    elif cfg.model.model.load_in_4bit:
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=torch.float16,

@@ -1,7 +1,7 @@
 # Base configuration
 defaults:
   - _self_  # This ensures base.yaml is loaded first
-  - model: base
+  - model: gpt2
   - training: base
   - peft: base
   - dataset: base

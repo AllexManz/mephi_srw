@@ -55,9 +55,10 @@ def main(cfg: DictConfig) -> None:
     tokenizer = AutoTokenizer.from_pretrained(cfg.model.model.name)
     
     # Если используется PEFT, загружаем адаптер
-    if cfg.peft.enabled:
-        print(f"Loading PEFT adapter from {cfg.peft.adapter_path}...")
-        trainer = SecurityModelTrainer.load_model(cfg.peft.adapter_path, cfg)
+    if cfg.peft.peft.enabled:
+        adapter_path = cfg.peft.peft.adapter_path or f"{cfg.paths.adapters_dir}/{cfg.peft.peft.method}_adapter"
+        print(f"Loading PEFT adapter from {adapter_path}...")
+        trainer = SecurityModelTrainer.load_model(adapter_path, cfg)
         model = trainer.model
         tokenizer = trainer.tokenizer
     

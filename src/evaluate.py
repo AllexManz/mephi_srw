@@ -2,12 +2,15 @@
 Script for running model evaluation using the existing evaluator module.
 """
 
+import json
 import os
-import hydra
 from pathlib import Path
+
+import hydra
+import torch
 from omegaconf import DictConfig
-from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from evaluation.evaluator import SecurityModelEvaluator
 from training.dataset import SecurityDataset
@@ -16,7 +19,10 @@ from training.dataset import SecurityDataset
 def main(cfg: DictConfig):
     # Определение путей
     if cfg.peft.peft.enabled:
-        model_path = os.path.join(cfg.paths.adapters_dir, f"{cfg.peft.peft.method}_adapter")
+        model_path = cfg.peft.peft.adapter_path or os.path.join(
+            cfg.paths.adapters_dir,
+            f"{cfg.peft.peft.method}_adapter"
+        )
     else:
         model_path = os.path.join(cfg.paths.checkpoints_dir, "full_model")
     
@@ -24,16 +30,15 @@ def main(cfg: DictConfig):
     eval_dataset_path = os.path.join(cfg.paths.dataset_dir, "eval.json")
     
     # Проверка существования файлов
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model not found at {model_path}")
-    if not os.path.exists(tokenizer_path):
-        raise FileNotFoundError(f"Tokenizer not found at {tokenizer_path}")
+    if cfg.peft.peft.enabled and not os.path.exists(model_path):
+        raise FileNotFoundError(f"PEFT adapter not found at {model_path}")
     if not os.path.exists(eval_dataset_path):
         raise FileNotFoundError(f"Evaluation dataset not found at {eval_dataset_path}")
     
     # Загрузка токенизатора
-    print(f"Loading tokenizer from {tokenizer_path}...")
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    tokenizer_source = tokenizer_path if os.path.exists(tokenizer_path) else cfg.model.model.name
+    print(f"Loading tokenizer from {tokenizer_source}...")
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_source)
     tokenizer.pad_token = tokenizer.eos_token
     
     # Загрузка модели
@@ -42,21 +47,30 @@ def main(cfg: DictConfig):
         base_model = AutoModelForCausalLM.from_pretrained(
             cfg.model.model.name,
             torch_dtype=getattr(torch, cfg.model.model.torch_dtype),
-            device_map=None,
+            device_map=cfg.model.model.device_map,
             trust_remote_code=cfg.model.model.trust_remote_code
         )
         model = PeftModel.from_pretrained(base_model, model_path)
     else:
+        if not Path(model_path).exists():
+            model_path = cfg.model.model.name
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
             torch_dtype=getattr(torch, cfg.model.model.torch_dtype),
-            device_map=None,
+            device_map=cfg.model.model.device_map,
             trust_remote_code=cfg.model.model.trust_remote_code
         )
     
     # Создание датасета
     print(f"Loading evaluation dataset from {eval_dataset_path}...")
-    eval_dataset = SecurityDataset.from_json(eval_dataset_path, tokenizer)
+    with open(eval_dataset_path, "r", encoding="utf-8") as f:
+        eval_examples = json.load(f)
+    max_length = (
+        cfg.model.model.training.max_length
+        if "training" in cfg.model.model
+        else cfg.evaluation.max_length
+    )
+    eval_dataset = SecurityDataset(eval_examples, tokenizer, max_length)
     
     # Инициализация оценщика
     evaluator = SecurityModelEvaluator(
@@ -77,8 +91,7 @@ def main(cfg: DictConfig):
     
     # Генерация ответов на примерах
     print("\nGenerating responses for examples...")
-    examples = eval_dataset.get_examples()
-    responses = evaluator.generate_responses(examples)
+    responses = evaluator.generate_responses(eval_examples)
     
     print(f"\nResults saved to {cfg.paths.evaluation_dir}")
     print("Evaluation completed!")

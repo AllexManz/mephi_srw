@@ -53,7 +53,9 @@ class SecurityModelEvaluator:
             Dict[str, float]: Словарь с метриками оценки
         """
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        batch_size = batch_size or self.cfg.evaluation.batch_size
+        eval_cfg = self.cfg.evaluation.evaluation if "evaluation" in self.cfg.evaluation else self.cfg.evaluation
+        batch_cfg = eval_cfg.batch if "batch" in eval_cfg else eval_cfg
+        batch_size = batch_size or batch_cfg.size
         
         # Переводим модель в режим оценки
         self.model.eval()
@@ -67,7 +69,7 @@ class SecurityModelEvaluator:
                 eval_dataset,
                 batch_size=batch_size,
                 shuffle=False,
-                num_workers=self.cfg.evaluation.num_workers
+                num_workers=batch_cfg.num_workers
             )
             
             perplexity = calculate_perplexity(
@@ -127,8 +129,10 @@ class SecurityModelEvaluator:
             List[Dict[str, str]]: Список примеров с сгенерированными ответами
         """
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        max_new_tokens = max_new_tokens or self.cfg.evaluation.max_new_tokens
-        temperature = temperature or self.cfg.evaluation.temperature
+        eval_cfg = self.cfg.evaluation.evaluation if "evaluation" in self.cfg.evaluation else self.cfg.evaluation
+        gen_cfg = eval_cfg.generation if "generation" in eval_cfg else eval_cfg
+        max_new_tokens = max_new_tokens or gen_cfg.max_new_tokens
+        temperature = temperature or eval_cfg.temperature
         
         self.model.eval()
         self.model.to(device)
@@ -149,7 +153,7 @@ class SecurityModelEvaluator:
             inputs = self.tokenizer(
                 prompt,
                 return_tensors="pt",
-                max_length=self.cfg.evaluation.max_length,
+                max_length=eval_cfg.max_length,
                 truncation=True
             ).to(device)
             

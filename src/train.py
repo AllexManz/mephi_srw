@@ -39,6 +39,7 @@ from training.callbacks import (
     DetailedLoggingCallback,
     TensorBoardCallback
 )
+from training.utils import setup_model_for_training
 
 class SecurityDataset(Dataset):
     """Датасет для обучения модели на примерах безопасности."""
@@ -104,23 +105,12 @@ class SecurityModelTrainer:
     def _setup_model(self) -> PreTrainedModel:
         """Initialize the model with proper training setup."""
         print(f"Loading model from {self.cfg.model.model.name}...")
-        
-        # Определяем устройство для модели
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"Using device: {device}")
-        
-        # Load model with proper configuration
-        model = AutoModelForCausalLM.from_pretrained(
+        model = setup_model_for_training(
             self.cfg.model.model.name,
-            torch_dtype=getattr(torch, self.cfg.model.model.torch_dtype),
-            device_map=None,  # Changed from "auto" to None
-            trust_remote_code=self.cfg.model.model.trust_remote_code,
-            use_cache=False  # Required for gradient checkpointing
+            self.cfg,
+            device_map=self.cfg.model.model.device_map
         )
-        
-        # Move model to device
-        model = model.to(device)
-        
+
         # Enable gradient checkpointing for memory efficiency
         if self.cfg.training.training.optimization.gradient_checkpointing:
             model.gradient_checkpointing_enable()
@@ -232,6 +222,7 @@ class SecurityModelTrainer:
         eval_dataset: Optional[DatasetDict] = None
     ):
         """Обучение модели."""
+        self.start_time = time.time()
         if self.cfg.logging.wandb.enabled:
             wandb.init(
                 project=self.cfg.logging.wandb.project,

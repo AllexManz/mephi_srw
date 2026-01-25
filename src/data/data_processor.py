@@ -55,8 +55,7 @@ class SecurityDataProcessor:
             examples["text"],
             truncation=True,
             max_length=self.max_length,
-            padding="max_length",
-            return_tensors="pt"
+            padding="max_length"
         )
     
     def prepare_dataset(self) -> DatasetDict:

@@ -53,34 +53,26 @@ class SecurityModelTrainer:
         # Инициализация модели
         self.model = setup_model_for_training(model_name, cfg)
         
-        # Настройка метода fine-tuning
-        if self.cfg.training.method == "full":
-            # Full fine-tuning - ничего не делаем, модель уже готова
-            pass
-        elif self.cfg.training.method in ["lora", "qlora", "prefix_tuning", "prompt_tuning"]:
+        # Настройка PEFT если требуется
+        if self.cfg.peft.peft.enabled:
             self.model = self._setup_peft()
-        else:
-            raise ValueError(
-                f"Unknown training method: {self.cfg.training.method}. "
-                "Supported methods are: full, lora, qlora, prefix_tuning, prompt_tuning"
-            )
         
         # Инициализация TensorBoard
         self.writer = SummaryWriter(log_dir=self.cfg.paths.tensorboard_dir)
     
     def _setup_peft(self) -> Union[PeftModel, AutoModelForCausalLM]:
         """Настройка PEFT адаптера в зависимости от выбранного метода."""
-        method = self.cfg.training.method.lower()
+        method = self.cfg.peft.peft.method.lower()
         
         if method == "lora":
             config = LoraConfig(
-                r=self.cfg.peft.lora.r,
-                lora_alpha=self.cfg.peft.lora.alpha,
-                target_modules=self.cfg.peft.lora.target_modules,
-                lora_dropout=self.cfg.peft.lora.lora_dropout,
-                bias=self.cfg.peft.lora.bias,
+                r=self.cfg.peft.peft.lora.r,
+                lora_alpha=self.cfg.peft.peft.lora.alpha,
+                target_modules=list(self.cfg.peft.peft.lora.target_modules),
+                lora_dropout=self.cfg.peft.peft.lora.lora_dropout,
+                bias=self.cfg.peft.peft.lora.bias,
                 task_type=TaskType.CAUSAL_LM,
-                modules_to_save=self.cfg.peft.lora.modules_to_save,
+                modules_to_save=self.cfg.peft.peft.lora.modules_to_save,
                 inference_mode=False
             )
         
@@ -101,30 +93,30 @@ class SecurityModelTrainer:
             )
             
             config = LoraConfig(
-                r=self.cfg.peft.qlora.r,
-                lora_alpha=self.cfg.peft.qlora.alpha,
-                target_modules=self.cfg.peft.qlora.target_modules,
-                lora_dropout=self.cfg.peft.qlora.lora_dropout,
-                bias=self.cfg.peft.qlora.bias,
+                r=self.cfg.peft.peft.lora.r,
+                lora_alpha=self.cfg.peft.peft.lora.alpha,
+                target_modules=list(self.cfg.peft.peft.lora.target_modules),
+                lora_dropout=self.cfg.peft.peft.lora.lora_dropout,
+                bias=self.cfg.peft.peft.lora.bias,
                 task_type=TaskType.CAUSAL_LM,
-                modules_to_save=self.cfg.peft.qlora.modules_to_save,
+                modules_to_save=self.cfg.peft.peft.lora.modules_to_save,
                 inference_mode=False
             )
         
         elif method == "prefix_tuning":
             config = PrefixTuningConfig(
-                num_virtual_tokens=self.cfg.peft.prefix_tuning.num_virtual_tokens,
-                encoder_hidden_size=self.cfg.peft.prefix_tuning.encoder_hidden_size,
-                prefix_projection=self.cfg.peft.prefix_tuning.prefix_projection,
+                num_virtual_tokens=self.cfg.peft.peft.prefix_tuning.num_virtual_tokens,
+                encoder_hidden_size=self.cfg.peft.peft.prefix_tuning.encoder_hidden_size,
+                prefix_projection=self.cfg.peft.peft.prefix_tuning.prefix_projection,
                 task_type=TaskType.CAUSAL_LM
             )
         
         elif method == "prompt_tuning":
             config = PromptTuningConfig(
-                num_virtual_tokens=self.cfg.peft.prompt_tuning.num_virtual_tokens,
-                prompt_tuning_init=self.cfg.peft.prompt_tuning.prompt_tuning_init,
-                token_dim=self.cfg.peft.prompt_tuning.token_dim,
-                prompt_tuning_init_text=self.cfg.peft.prompt_tuning.prompt_tuning_init_text,
+                num_virtual_tokens=self.cfg.peft.peft.prompt_tuning.num_virtual_tokens,
+                prompt_tuning_init=self.cfg.peft.peft.prompt_tuning.prompt_tuning_init,
+                token_dim=self.cfg.peft.peft.prompt_tuning.token_dim,
+                prompt_tuning_init_text=self.cfg.peft.peft.prompt_tuning.prompt_tuning_init_text,
                 task_type=TaskType.CAUSAL_LM
             )
         
@@ -148,44 +140,50 @@ class SecurityModelTrainer:
     
     def _setup_training_args(self) -> TrainingArguments:
         """Настройка параметров обучения."""
+        report_to = []
+        if self.cfg.logging.tensorboard.enabled:
+            report_to.append("tensorboard")
+        if self.cfg.logging.wandb.enabled:
+            report_to.append("wandb")
+
         return TrainingArguments(
             output_dir=str(self.output_dir),
-            num_train_epochs=self.cfg.training.num_train_epochs,
-            per_device_train_batch_size=self.cfg.training.per_device_train_batch_size,
-            per_device_eval_batch_size=self.cfg.training.per_device_eval_batch_size,
-            gradient_accumulation_steps=self.cfg.training.gradient_accumulation_steps,
-            learning_rate=self.cfg.training.learning_rate,
-            weight_decay=self.cfg.training.weight_decay,
-            warmup_steps=self.cfg.training.warmup_steps,
-            max_grad_norm=self.cfg.training.max_grad_norm,
-            lr_scheduler_type=self.cfg.training.lr_scheduler_type,
+            num_train_epochs=self.cfg.training.training.num_train_epochs,
+            per_device_train_batch_size=self.cfg.model.model.training.per_device_train_batch_size,
+            per_device_eval_batch_size=self.cfg.model.model.training.per_device_eval_batch_size,
+            gradient_accumulation_steps=self.cfg.model.model.training.gradient_accumulation_steps,
+            learning_rate=self.cfg.model.model.training.learning_rate,
+            weight_decay=self.cfg.training.training.weight_decay,
+            warmup_steps=self.cfg.training.training.warmup_steps,
+            max_grad_norm=self.cfg.training.training.max_grad_norm,
+            lr_scheduler_type=self.cfg.training.training.lr_scheduler_type,
             
             # Настройки логирования
             logging_dir=self.cfg.paths.training_logs_dir,
-            logging_steps=self.cfg.training.logging.logging_steps,
-            logging_first_step=self.cfg.training.logging.logging_first_step,
-            report_to=self.cfg.training.logging.report_to,
+            logging_steps=self.cfg.logging.logging.logging_steps,
+            logging_first_step=self.cfg.logging.logging.logging_first_step,
+            report_to=report_to,
             
             # Настройки оценки
-            eval_strategy=self.cfg.training.evaluation.eval_strategy,
-            eval_steps=self.cfg.training.evaluation.eval_steps,
-            metric_for_best_model=self.cfg.training.evaluation.metric_for_best_model,
-            greater_is_better=self.cfg.training.evaluation.greater_is_better,
-            load_best_model_at_end=self.cfg.training.evaluation.load_best_model_at_end,
+            eval_strategy=self.cfg.training.training.evaluation.eval_strategy,
+            eval_steps=self.cfg.training.training.evaluation.eval_steps,
+            metric_for_best_model=self.cfg.training.training.evaluation.metric_for_best_model,
+            greater_is_better=self.cfg.training.training.evaluation.greater_is_better,
+            load_best_model_at_end=self.cfg.training.training.evaluation.load_best_model_at_end,
             
             # Настройки сохранения
-            save_strategy=self.cfg.training.save.save_strategy,
-            save_steps=self.cfg.training.save.save_steps,
-            save_total_limit=self.cfg.training.save.save_total_limit,
+            save_strategy=self.cfg.training.training.save.save_strategy,
+            save_steps=self.cfg.training.training.save.save_steps,
+            save_total_limit=self.cfg.training.training.save.save_total_limit,
             
             # Оптимизация
-            fp16=self.cfg.training.optimization.fp16,
-            gradient_checkpointing=self.cfg.training.optimization.gradient_checkpointing,
-            dataloader_num_workers=self.cfg.training.optimization.dataloader_num_workers,
-            dataloader_pin_memory=self.cfg.training.optimization.dataloader_pin_memory,
+            fp16=self.cfg.training.training.optimization.fp16 and torch.cuda.is_available(),
+            gradient_checkpointing=self.cfg.training.training.optimization.gradient_checkpointing,
+            dataloader_num_workers=self.cfg.training.training.optimization.dataloader_num_workers,
+            dataloader_pin_memory=self.cfg.training.training.optimization.dataloader_pin_memory,
             
             # Дополнительные настройки
-            seed=self.cfg.training.seed,
+            seed=self.cfg.training.training.seed,
             remove_unused_columns=False,  # Важно для работы с нашим датасетом
         )
     
@@ -195,20 +193,17 @@ class SecurityModelTrainer:
         eval_dataset: Optional[DatasetDict] = None
     ):
         """Обучение модели."""
-        if self.cfg.training.logging.wandb.enabled:
-            config_dict = {
-                "model_name": self.model_name,
-                "training_method": self.cfg.training.method
-            }
-            if self.cfg.training.method != "full":
-                config_dict.update(OmegaConf.to_container(self.cfg.peft, resolve=True))
-            config_dict.update(OmegaConf.to_container(self.cfg.model, resolve=True))
-            config_dict.update(OmegaConf.to_container(self.cfg.training, resolve=True))
-            
+        if self.cfg.logging.wandb.enabled:
             wandb.init(
-                project=self.cfg.training.logging.wandb.project,
-                name=self.cfg.training.logging.wandb.name,
-                config=config_dict
+                project=self.cfg.logging.wandb.project,
+                name=self.cfg.logging.wandb.name,
+                config={
+                    "model_name": self.model_name,
+                    "peft_method": self.cfg.peft.peft.method if self.cfg.peft.peft.enabled else "full",
+                    **OmegaConf.to_container(self.cfg.model, resolve=True),
+                    **OmegaConf.to_container(self.cfg.training, resolve=True),
+                    **OmegaConf.to_container(self.cfg.peft, resolve=True)
+                }
             )
         
         training_args = self._setup_training_args()
@@ -249,24 +244,24 @@ class SecurityModelTrainer:
                 self.writer.add_scalar(f"final/{metric_name}", value)
         
         # Сохранение модели
-        if self.cfg.training.method == "full":
-            self.model.save_pretrained(os.path.join(self.output_dir, "full_model"))
+        if self.cfg.peft.peft.enabled:
+            trainer.model.save_pretrained(os.path.join(self.output_dir, f"{self.cfg.peft.peft.method}_adapter"))
         else:
-            self.model.save_pretrained(os.path.join(self.output_dir, f"{self.cfg.training.method}_adapter"))
+            self.model.save_pretrained(os.path.join(self.output_dir, "full_model"))
         self.tokenizer.save_pretrained(self.output_dir)
         
         # Закрываем TensorBoard writer
         self.writer.close()
         
-        if self.cfg.training.logging.wandb.enabled:
+        if self.cfg.logging.wandb.enabled:
             wandb.finish()
     
     def save_model(self, path: str):
         """Сохранение модели."""
-        if self.cfg.training.method == "full":
-            self.model.save_pretrained(os.path.join(path, "full_model"))
+        if self.cfg.peft.peft.enabled:
+            self.model.save_pretrained(os.path.join(path, f"{self.cfg.peft.peft.method}_adapter"))
         else:
-            self.model.save_pretrained(os.path.join(path, f"{self.cfg.training.method}_adapter"))
+            self.model.save_pretrained(os.path.join(path, "full_model"))
         self.tokenizer.save_pretrained(path)
     
     @classmethod
@@ -278,16 +273,16 @@ class SecurityModelTrainer:
         """Загрузка сохраненной модели."""
         trainer = cls(cfg.model.model.name, path, cfg)
         
-        if cfg.training.method == "full":
-            trainer.model = AutoModelForCausalLM.from_pretrained(
-                os.path.join(path, "full_model"),
-                torch_dtype=getattr(torch, cfg.model.torch_dtype),
-                device_map=cfg.model.device_map
-            )
-        else:
+        if cfg.peft.peft.enabled:
             trainer.model = PeftModel.from_pretrained(
                 trainer.model,
-                os.path.join(path, f"{cfg.training.method}_adapter")
+                os.path.join(path, f"{cfg.peft.peft.method}_adapter")
+            )
+        else:
+            trainer.model = AutoModelForCausalLM.from_pretrained(
+                os.path.join(path, "full_model"),
+                torch_dtype=getattr(torch, cfg.model.model.torch_dtype),
+                device_map=cfg.model.model.device_map
             )
         
         trainer.tokenizer = AutoTokenizer.from_pretrained(path)
