@@ -26,7 +26,10 @@ from peft import (
     PeftConfig
 )
 from datasets import DatasetDict
-import wandb
+try:
+    import wandb  # noqa: WPS433
+except ImportError:  # optional dependency — training works with logging.wandb.enabled=false
+    wandb = None
 import hydra
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
@@ -128,7 +131,8 @@ class SecurityModelTrainer:
     
     def _setup_peft(self, model: PreTrainedModel) -> PreTrainedModel:
         """Configure PEFT for the model."""
-        if self.cfg.peft.peft.method == "lora":
+        if self.cfg.peft.peft.method in ("lora", "qlora"):
+            # QLoRA использует тот же LoRA-адаптер поверх 4-bit базы (см. qlora.yaml + setup_model_for_training)
             # Convert target_modules from ListConfig to regular list
             target_modules = list(self.cfg.peft.peft.lora.target_modules)
             
@@ -170,8 +174,10 @@ class SecurityModelTrainer:
         report_to = []
         if self.cfg.logging.tensorboard.enabled:
             report_to.append("tensorboard")
-        if self.cfg.logging.wandb.enabled:
+        if self.cfg.logging.wandb.enabled and wandb is not None:
             report_to.append("wandb")
+        elif self.cfg.logging.wandb.enabled:
+            print("logging.wandb.enabled=true but wandb is not installed; skipping Weights & Biases reporting.")
 
         fsdp = None
         fsdp_config = None
@@ -193,8 +199,10 @@ class SecurityModelTrainer:
             mixed_precision = fsdp_cfg.get("mixed_precision")
             if mixed_precision in {"fp16", "bf16"}:
                 fsdp_config["mixed_precision"] = mixed_precision
-        
-        return TrainingArguments(
+
+        ta_eval = self.cfg.training.training.evaluation
+
+        kw: Dict[str, Any] = dict(
             output_dir=self.cfg.paths.checkpoints_dir,
             num_train_epochs=self.cfg.training.training.num_train_epochs,
             per_device_train_batch_size=self.cfg.model.model.training.per_device_train_batch_size,
@@ -205,40 +213,30 @@ class SecurityModelTrainer:
             warmup_steps=self.cfg.training.training.warmup_steps,
             max_grad_norm=self.cfg.training.training.max_grad_norm,
             lr_scheduler_type=self.cfg.training.training.lr_scheduler_type,
-            
-            # Device settings
             no_cuda=not torch.cuda.is_available(),
-            
-            # Logging settings
             logging_dir=self.cfg.paths.training_logs_dir,
             logging_steps=self.cfg.logging.logging.logging_steps,
             logging_first_step=self.cfg.logging.logging.logging_first_step,
-            report_to=report_to,  # Используем динамически сформированный список
-            
-            # Evaluation settings
-            eval_strategy="steps",  # Fixed value since it's not in config
-            eval_steps=100,  # Fixed value since it's not in config
-            metric_for_best_model="eval_loss",  # Fixed value since it's not in config
-            greater_is_better=False,  # Fixed value since it's not in config
-            load_best_model_at_end=True,  # Fixed value since it's not in config
-            
-            # Save settings
+            report_to=report_to,
+            eval_strategy=ta_eval.eval_strategy,
+            eval_steps=ta_eval.eval_steps,
+            metric_for_best_model=ta_eval.metric_for_best_model,
+            greater_is_better=ta_eval.greater_is_better,
+            load_best_model_at_end=ta_eval.load_best_model_at_end,
             save_strategy=self.cfg.training.training.save.save_strategy,
             save_steps=self.cfg.training.training.save.save_steps,
             save_total_limit=self.cfg.training.training.save.save_total_limit,
-            
-            # Optimization settings
             fp16=self.cfg.training.training.optimization.fp16 and torch.cuda.is_available(),
             gradient_checkpointing=self.cfg.training.training.optimization.gradient_checkpointing,
             dataloader_num_workers=self.cfg.training.training.optimization.dataloader_num_workers,
             dataloader_pin_memory=self.cfg.training.training.optimization.dataloader_pin_memory,
-            
-            # Additional settings
             seed=self.cfg.training.training.seed,
             remove_unused_columns=False,
-            fsdp=fsdp,
-            fsdp_config=fsdp_config
         )
+        if fsdp is not None:
+            kw["fsdp"] = fsdp
+            kw["fsdp_config"] = fsdp_config
+        return TrainingArguments(**kw)
     
     def train(
         self,
@@ -251,7 +249,7 @@ class SecurityModelTrainer:
         fsdp_enabled = self.cfg.training.training.get("fsdp", {}).get("enabled", False)
         if fsdp_enabled and self.cfg.peft.peft.enabled and self.cfg.peft.peft.method == "qlora":
             print("Warning: FSDP with QLoRA may be unstable. Consider disabling FSDP or QLoRA.")
-        if self.cfg.logging.wandb.enabled:
+        if self.cfg.logging.wandb.enabled and wandb is not None:
             wandb.init(
                 project=self.cfg.logging.wandb.project,
                 name=self.cfg.logging.wandb.name,
@@ -290,7 +288,7 @@ class SecurityModelTrainer:
             trainer_cls = PolicyOptimTrainer
             ref_model = create_reference_model(self.model_name, self.cfg)
 
-        trainer = trainer_cls(
+        trainer_kwargs: Dict[str, Any] = dict(
             model=self.model,
             args=training_args,
             train_dataset=train_dataset["train"],
@@ -300,10 +298,15 @@ class SecurityModelTrainer:
                 mlm=False
             ),
             callbacks=callbacks,
-            ref_model=ref_model,
-            policy_method=training_method,
-            policy_config=self.cfg.training.training.get("policy_optimization", {})
         )
+        if trainer_cls is not Trainer:
+            trainer_kwargs.update(
+                ref_model=ref_model,
+                policy_method=training_method,
+                policy_config=self.cfg.training.training.get("policy_optimization", {}),
+            )
+
+        trainer = trainer_cls(**trainer_kwargs)
         
         # Логируем информацию о модели
         print("\n=== Информация о модели ===")
@@ -350,7 +353,7 @@ class SecurityModelTrainer:
         # Закрываем TensorBoard writer
         self.writer.close()
         
-        if self.cfg.logging.wandb.enabled:
+        if self.cfg.logging.wandb.enabled and wandb is not None:
             wandb.finish()
         
         print("\n=== Обучение завершено ===")

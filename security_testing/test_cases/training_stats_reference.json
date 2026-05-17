@@ -1,0 +1,9 @@
+{
+  "label_buckets": {
+    "cve": 4618,
+    "technique": 375,
+    "mitre": 5,
+    "misc": 2
+  },
+  "reference_row_sample": 5000
+}

@@ -26,7 +26,10 @@ from peft import (
     PeftConfig
 )
 from datasets import DatasetDict
-import wandb
+try:
+    import wandb  # noqa: WPS433
+except ImportError:
+    wandb = None
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.tensorboard import SummaryWriter
 
@@ -144,8 +147,10 @@ class SecurityModelTrainer:
         report_to = []
         if self.cfg.logging.tensorboard.enabled:
             report_to.append("tensorboard")
-        if self.cfg.logging.wandb.enabled:
+        if self.cfg.logging.wandb.enabled and wandb is not None:
             report_to.append("wandb")
+        elif self.cfg.logging.wandb.enabled:
+            print("logging.wandb.enabled=true but wandb is not installed; skipping Weights & Biases reporting.")
 
         fsdp = None
         fsdp_config = None
@@ -221,7 +226,7 @@ class SecurityModelTrainer:
         fsdp_enabled = self.cfg.training.training.get("fsdp", {}).get("enabled", False)
         if fsdp_enabled and self.cfg.peft.peft.enabled and self.cfg.peft.peft.method == "qlora":
             print("Warning: FSDP with QLoRA may be unstable. Consider disabling FSDP or QLoRA.")
-        if self.cfg.logging.wandb.enabled:
+        if self.cfg.logging.wandb.enabled and wandb is not None:
             wandb.init(
                 project=self.cfg.logging.wandb.project,
                 name=self.cfg.logging.wandb.name,
@@ -290,7 +295,7 @@ class SecurityModelTrainer:
         # Закрываем TensorBoard writer
         self.writer.close()
         
-        if self.cfg.logging.wandb.enabled:
+        if self.cfg.logging.wandb.enabled and wandb is not None:
             wandb.finish()
     
     def save_model(self, path: str):

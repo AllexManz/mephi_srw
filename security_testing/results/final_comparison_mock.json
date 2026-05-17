@@ -1,0 +1,130 @@
+{
+  "prompt_injection_baseline_metrics": {
+    "direct": {
+      "cases": 3,
+      "asr": 0.0
+    },
+    "overall": {
+      "cases": 3,
+      "asr": 0.0
+    }
+  },
+  "prompt_injection_protected_metrics": {
+    "direct": {
+      "cases": 3,
+      "asr": 0.0
+    },
+    "overall": {
+      "cases": 3,
+      "asr": 0.0
+    }
+  },
+  "data_leakage_baseline_summary": {
+    "leak_rates_by_type": {
+      "training_memorization": 0.0
+    },
+    "totals_cases": {
+      "training_memorization": 3
+    },
+    "overall_leaks": 0,
+    "membership_inference": {
+      "mean_nll_members": 0.0,
+      "mean_nll_non_members": 0.0,
+      "heuristic_classifier_signal": false
+    }
+  },
+  "data_leakage_protected_summary": {
+    "leak_rates_by_type": {
+      "training_memorization": 0.0
+    },
+    "totals_cases": {
+      "training_memorization": 3
+    },
+    "overall_leaks": 0,
+    "membership_inference": {
+      "mean_nll_members": 0.0,
+      "mean_nll_non_members": 0.0,
+      "heuristic_classifier_signal": false
+    }
+  },
+  "poison_baseline": {
+    "artifact": "/home/papkovas/mephi_srw/security_testing/test_cases/poison_train_001_dirty.json",
+    "count_raw": 8671,
+    "count_after_screening": 8671,
+    "training_validator": {
+      "count": 8671,
+      "label_buckets": {
+        "cve": 8009,
+        "technique": 649,
+        "mitre": 11,
+        "misc": 2
+      },
+      "chi_square": {
+        "statistic": 21113.526352208508,
+        "pvalue": 0.0,
+        "categories": {
+          "cve": 8009,
+          "technique": 649,
+          "mitre": 11,
+          "misc": 2
+        }
+      },
+      "iso_meta": {
+        "note": "sklearn_missing"
+      },
+      "isolation_candidate_indices": [],
+      "heavy_distribution_anomaly_flag": false
+    },
+    "reference_comparison": {
+      "max_distribution_shift_bucket": 0.0002685964709952715,
+      "pairs": {
+        "cve": 5.355783646643353e-05,
+        "technique": 0.00015280821127897082,
+        "mitre": 0.0002685964709952715,
+        "misc": 0.0001693460961826779
+      },
+      "flag": false
+    },
+    "note": "mock-model: skipped torch benchmark"
+  },
+  "poison_screened": {
+    "artifact": "/home/papkovas/mephi_srw/security_testing/test_cases/poison_train_001_dirty.json",
+    "count_raw": 8671,
+    "count_after_screening": 8671,
+    "training_validator": {
+      "count": 8671,
+      "label_buckets": {
+        "cve": 8009,
+        "technique": 649,
+        "mitre": 11,
+        "misc": 2
+      },
+      "chi_square": {
+        "statistic": 21113.526352208508,
+        "pvalue": 0.0,
+        "categories": {
+          "cve": 8009,
+          "technique": 649,
+          "mitre": 11,
+          "misc": 2
+        }
+      },
+      "iso_meta": {
+        "note": "sklearn_missing"
+      },
+      "isolation_candidate_indices": [],
+      "heavy_distribution_anomaly_flag": false
+    },
+    "reference_comparison": {
+      "max_distribution_shift_bucket": 0.0002685964709952715,
+      "pairs": {
+        "cve": 5.355783646643353e-05,
+        "technique": 0.00015280821127897082,
+        "mitre": 0.0002685964709952715,
+        "misc": 0.0001693460961826779
+      },
+      "flag": false
+    },
+    "note": "mock-model: skipped torch benchmark"
+  }
+}

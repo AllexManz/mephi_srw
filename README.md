@@ -24,6 +24,7 @@
 ├── src/                # Исходный код
 │   ├── data/          # Скрипты для обработки данных
 │   └── train.py       # Основной скрипт обучения
+├── security_testing/  # Инструментарий безопасностных экспериментов (этап 4)
 ├── .env.example        # Пример файла с переменными окружения
 ├── requirements.txt    # Зависимости проекта
 └── setup.sh           # Скрипт для настройки окружения
@@ -32,12 +33,14 @@
 ## Установка и настройка
 
 1. Клонируйте репозиторий:
+
 ```bash
 git clone https://github.com/your-username/security-llm.git
 cd security-llm
 ```
 
-2. Создайте и настройте окружение:
+1. Создайте и настройте окружение:
+
 ```bash
 # Создание conda окружения и установка зависимостей
 bash setup.sh
@@ -49,7 +52,8 @@ conda activate security_llm
 cp .env.example .env
 ```
 
-3. Настройте переменные окружения в `.env`:
+1. Настройте переменные окружения в `.env`:
+
 ```bash
 # Пути к директориям (опционально)
 BASE_DIR=/path/to/project
@@ -67,6 +71,7 @@ MITRE_ATTACK_URL=https://attack.mitre.org/enterprise/attack.json
 ### Подготовка данных
 
 1. Подготовьте датасет:
+
 ```bash
 python src/data/prepare_dataset.py dataset=full
 ```
@@ -74,16 +79,19 @@ python src/data/prepare_dataset.py dataset=full
 ### Обучение
 
 1. Базовое обучение с Mistral-7B и LoRA:
+
 ```bash
 python src/train.py model=mistral peft=lora
 ```
 
-2. Обучение с GPT-2 (для тестирования):
+1. Обучение с GPT-2 (для тестирования):
+
 ```bash
 python src/train.py model=gpt2 peft=lora
 ```
 
-3. Дополнительные опции:
+1. Дополнительные опции:
+
 ```bash
 # Изменение параметров обучения
 python src/train.py model=mistral peft=lora training.training.num_train_epochs=5
@@ -98,23 +106,27 @@ python src/train.py model=mistral peft=lora training.training.per_device_train_b
 ### RL стадия (GSPO/GRPO)
 
 RL‑стадия обучает модель с KL‑регуляризацией относительно референс‑модели.
+
 ```bash
 python src/train.py training.training.method=gspo
 python src/train.py training.training.method=grpo
 ```
 
 Параметры RL‑стадии находятся в `configs/training/base.yaml`:
+
 - `training.policy_optimization.kl_coef` — вес KL‑регуляризации
 - `training.policy_optimization.temperature` — температура в KL‑терме
 
 ### Мониторинг обучения
 
 1. TensorBoard:
+
 ```bash
 tensorboard --logdir logs/tensorboard
 ```
 
-2. Проверка логов:
+1. Проверка логов:
+
 ```bash
 # Логи обучения
 ls logs/training/
@@ -138,11 +150,13 @@ ls models/adapters/
 ## Интеграция с SIEM
 
 Минимальный запуск анализа последних событий:
+
 ```bash
 python src/run_siem_simple.py
 ```
 
 Режим мониторинга/исторического анализа:
+
 ```bash
 python src/run_siem.py --mode monitor --interval 60 --time-window 5
 python src/run_siem.py --mode analyze --start-time 2025-01-01T00:00:00
@@ -151,11 +165,13 @@ python src/run_siem.py --mode analyze --start-time 2025-01-01T00:00:00
 ## FSDP обучение
 
 Запуск под FSDP лучше делать через `torchrun`:
+
 ```bash
 torchrun --nproc_per_node=2 src/train.py training=fsdp_gpt2
 ```
 
 Для Mistral:
+
 ```bash
 torchrun --nproc_per_node=2 src/train.py training=fsdp_mistral model=mistral
 ```
@@ -163,6 +179,7 @@ torchrun --nproc_per_node=2 src/train.py training=fsdp_mistral model=mistral
 ## Пайплайн обучения
 
 Полный пайплайн: сбор событий из SIEM → обработка → QLoRA → GSPO → оценка.
+
 ```bash
 python src/train_pipeline.py
 ```
@@ -207,15 +224,57 @@ python src/train_pipeline.py
 - `attack_stages` (List[str])
 - `temporal_label`
 
+## Эксперименты по безопасности (`security_testing/`)
+
+Артефакты генерации: `security_testing/test_cases/`; результаты прогонов: `security_testing/results/` (локальные JSON).
+
+Из корня репозитория задайте `PYTHONPATH=.`, затем выполните сценарий:
+
+```bash
+# 1. Датасеты
+PYTHONPATH=. python3 security_testing/datasets/generate_prompt_injection.py
+PYTHONPATH=. python3 security_testing/datasets/generate_data_leakage.py
+PYTHONPATH=. python3 security_testing/datasets/generate_poisoned_data.py
+
+# 2. Быстрый smoke-тест без весов модели
+PYTHONPATH=. python3 security_testing/evaluation/run_full_evaluation.py --limit 4
+
+# 3. Реальный Mistral + QLoRA (GPU и адаптер по `security_testing/configs/model_config.yaml`)
+PYTHONPATH=. python3 security_testing/attacks/run_prompt_injection.py --output security_testing/results/pi_baseline.json
+PYTHONPATH=. python3 security_testing/attacks/run_prompt_injection.py --with-defense --output security_testing/results/pi_protected.json
+PYTHONPATH=. python3 security_testing/attacks/run_data_leakage.py --output security_testing/results/dl_baseline.json
+PYTHONPATH=. python3 security_testing/attacks/run_poisoning.py --output security_testing/results/poison_baseline.json
+
+# 4. Сводка для отчёта
+PYTHONPATH=. python3 security_testing/evaluation/compare_results.py \
+  --pi-base security_testing/results/pi_baseline.json \
+  --pi-sec security_testing/results/pi_protected.json \
+  --dl-base security_testing/results/dl_baseline.json \
+  --dl-sec security_testing/results/dl_protected.json \
+  --poison-base security_testing/results/poison_baseline.json \
+  --poison-def security_testing/results/poison_protected.json \
+  --out security_testing/results/final_comparison.json
+
+PYTHONPATH=. python3 security_testing/evaluation/generate_tables.py \
+  --pi-base security_testing/results/pi_baseline.json \
+  --pi-sec security_testing/results/pi_protected.json \
+  --poison security_testing/results/poison_protected.json \
+  --out security_testing/tables/report.md
+```
+
+Дополнительно: `security_testing/configs/defense_config.yaml`. DP‑SGD без жёсткой привязки к `train.py` — см. `security_testing/defenses/dp_training.py` (заглушка + опционально `opacus`).
+
 ## MLflow
 
 По умолчанию используется локальное хранилище (`file:./mlruns`). Можно указать внешний сервер:
+
 ```bash
 export MLFLOW_TRACKING_URI=http://localhost:5000
 python src/train_pipeline.py
 ```
 
 Для полноценной интеграции с внешним артефакт-хранилищем используйте `docker-compose`:
+
 ```bash
 docker compose up -d
 export MLFLOW_TRACKING_URI=http://localhost:5000
@@ -225,16 +284,19 @@ python src/train_pipeline.py
 ## Требования
 
 ### Минимальные требования
+
 - Python 3.9+
 - 16GB RAM
 - 50GB свободного места на диске
 
 ### Рекомендуемые требования для обучения
+
 - CUDA-совместимая GPU с 16GB+ VRAM
 - 32GB+ RAM
 - 100GB+ свободного места на диске
 
 ### Рекомендуемые требования для инференса
+
 - CUDA-совместимая GPU с 8GB+ VRAM
 - 16GB+ RAM
 - 20GB+ свободного места на диске
@@ -248,4 +310,5 @@ MIT
 - Для обучения Mistral-7B требуется GPU с достаточным объемом VRAM
 - Для тестирования можно использовать GPT-2, который требует меньше ресурсов
 - Все пути к директориям можно настроить через переменные окружения
-- Логи и чекпоинты сохраняются в соответствующих директориях, структура которых сохраняется в git 
+- Логи и чекпоинты сохраняются в соответствующих директориях, структура которых сохраняется в git
+

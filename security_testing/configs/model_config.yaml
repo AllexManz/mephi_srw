@@ -1,0 +1,21 @@
+# Paths relative to repo root unless absolute
+base_model: mistralai/Mistral-7B-v0.1
+tokenizer_dir: models/tokenizer
+torch_dtype: float16
+trust_remote_code: true
+adapter_name: qlora
+adapters_dir_relative: models/adapters
+
+qlora:
+  enabled: true
+  adapter_path: null
+  quantization:
+    load_in_4bit: true
+    bnb_4bit_compute_dtype: float16
+    bnb_4bit_quant_type: nf4
+    bnb_4bit_use_double_quant: true
+
+inference:
+  max_length: 512
+  max_new_tokens: 256
+  temperature: 0.7

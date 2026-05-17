@@ -1,0 +1,40 @@
+prompt_canary_token: SECURITY_CANARY_7f3d2e1a
+
+input_filter:
+  enabled: true
+  escape_special: true
+
+output_validator:
+  max_chars: 8000
+  min_chars: 1
+  require_json_attempt: false
+  topical_keywords_en:
+    - security
+    - threat
+    - incident
+    - cve
+    - attack
+    - malware
+    - splunk
+  topical_keywords_ru:
+    - инцидент
+    - безопас
+    - уязвим
+    - атак
+    - событие
+    - рекоменда
+
+output_redaction:
+  enabled: true
+
+training_validator:
+  poison_label_shift_threshold: 0.05
+
+model_integrity:
+  canary_max_accuracy_drop: 0.05
+  canary_store_path: security_testing/test_cases/canary_set.json
+
+dp_training:
+  enabled: false
+  epsilon: 8.0
+  delta: 1.0e-5
