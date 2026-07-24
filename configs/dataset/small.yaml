@@ -1,5 +1,5 @@
 defaults:
-  - default
+  - base
 
 # Override settings for a small dataset
 dataset:

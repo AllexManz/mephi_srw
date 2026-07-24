@@ -17,42 +17,48 @@ def calculate_perplexity(
 ) -> float:
     """
     Вычисляет перплексию модели на заданном датасете.
-    
+
     Args:
         model: Модель для оценки
         dataloader: DataLoader с данными для оценки
         device: Устройство для вычислений
-        
+
     Returns:
         float: Значение перплексии
     """
     model.eval()
     total_loss = 0
     total_tokens = 0
-    
+
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Calculating perplexity"):
             # Переносим батч на нужное устройство
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
-            
+
             # Получаем loss
             outputs = model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 labels=labels
             )
-            
+
             # Считаем количество токенов (исключая padding)
             num_tokens = attention_mask.sum().item()
             total_tokens += num_tokens
             total_loss += outputs.loss.item() * num_tokens
-    
+
+    # Пустой eval-набор возможен, например, при слишком маленьком датасете
+    # и split с долей 1.0. В этом случае метрика неопределена, но оценка не
+    # должна падать с ZeroDivisionError.
+    if total_tokens == 0:
+        return float("nan")
+
     # Вычисляем средний loss и перплексию
     avg_loss = total_loss / total_tokens
     perplexity = math.exp(avg_loss)
-    
+
     return perplexity
 
 def calculate_accuracy(
@@ -64,21 +70,21 @@ def calculate_accuracy(
 ) -> Dict[str, float]:
     """
     Вычисляет точность модели на заданных примерах.
-    
+
     Args:
         model: Модель для оценки
         tokenizer: Токенизатор
         examples: Список примеров для оценки
         max_length: Максимальная длина последовательности
         device: Устройство для вычислений
-        
+
     Returns:
         Dict[str, float]: Словарь с метриками точности
     """
     model.eval()
     correct_predictions = 0
     total_predictions = 0
-    
+
     for example in tqdm(examples, desc="Calculating accuracy"):
         # Формируем промпт
         prompt = f"""### Инструкция: {example['instruction']}
@@ -88,7 +94,7 @@ def calculate_accuracy(
 ### Вход: {example['input']}
 
 ### Ответ:"""
-        
+
         # Токенизируем вход
         inputs = tokenizer(
             prompt,
@@ -96,7 +102,7 @@ def calculate_accuracy(
             max_length=max_length,
             truncation=True
         ).to(device)
-        
+
         # Генерируем ответ
         with torch.no_grad():
             outputs = model.generate(
@@ -105,29 +111,29 @@ def calculate_accuracy(
                 num_return_sequences=1,
                 pad_token_id=tokenizer.eos_token_id
             )
-        
+
         # Декодируем ответ
         generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
+
         # Извлекаем сгенерированный ответ (после "### Ответ:")
         try:
             generated_answer = generated_text.split("### Ответ:")[-1].strip()
         except IndexError:
             generated_answer = ""
-        
+
         # Сравниваем с правильным ответом
         if generated_answer.strip() == example["output"].strip():
             correct_predictions += 1
         total_predictions += 1
-    
+
     # Вычисляем метрики
     accuracy = correct_predictions / total_predictions if total_predictions > 0 else 0
-    
+
     return {
         "accuracy": accuracy,
         "correct_predictions": correct_predictions,
         "total_predictions": total_predictions
-    } 
+    }
 
 
 def _parse_threat_level(text: str) -> Optional[str]:
@@ -235,7 +241,9 @@ def calculate_security_metrics(
         # Average Reward
         reward_val = ex.get("reward")
         if reward_val is None:
-            reward_val = _extract_numeric(resp.get("reward", "")) or _extract_numeric(output)
+            reward_val = _extract_numeric(resp.get("reward", ""))
+            if reward_val is None:
+                reward_val = _extract_numeric(output)
         if reward_val is not None:
             rewards.append(float(reward_val))
 

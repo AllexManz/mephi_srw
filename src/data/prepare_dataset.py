@@ -16,49 +16,54 @@ load_dotenv()
 class DatasetPreparation:
     def __init__(self, cfg: DictConfig):
         self.cfg = cfg
-        
+
         # Используем значения из конфигурации
         self.output_dir = Path(self.cfg.dataset.dataset.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # CVE конфигурация
         self.nvd_api_key = self.cfg.env.NVD_API_KEY
         self.cve_days_lookback = self.cfg.dataset.cve.days_lookback
         self.cve_results_per_page = self.cfg.dataset.cve.results_per_page
         self.cve_max_results = self.cfg.dataset.cve.max_results
         self.cve_min_cvss_score = self.cfg.dataset.cve.min_cvss_score
-        
+
         # MITRE ATT&CK конфигурация
         self.mitre_attack_url = self.cfg.env.MITRE_ATTACK_URL
         self.mitre_include_tactics = self.cfg.dataset.mitre_attack.include_tactics
         self.mitre_include_techniques = self.cfg.dataset.mitre_attack.include_techniques
-        
+
         # Security Documentation конфигурация
         self.include_security_docs = self.cfg.dataset.security_docs.include
         self.max_docs_examples = self.cfg.dataset.security_docs.max_examples
-        
+        self.request_timeout_seconds = int(
+            self.cfg.dataset.get("request_timeout_seconds", 30)
+        )
+
     def download_mitre_attack(self) -> List[Dict[str, Any]]:
         """Загрузка и обработка данных MITRE ATT&CK."""
         print("Downloading MITRE ATT&CK data...")
-        
+
         if not (self.mitre_include_tactics or self.mitre_include_techniques):
             print("MITRE ATT&CK data download disabled in configuration")
             return []
-        
+
         # Используем URL из конфигурации
         enterprise_url = self.mitre_attack_url
         headers = {
             "Accept": "application/json",
             "User-Agent": "Security-LLM-Dataset-Preparation"
         }
-        
+
         try:
-            response = requests.get(enterprise_url, headers=headers)
+            response = requests.get(
+                enterprise_url, headers=headers, timeout=self.request_timeout_seconds
+            )
             response.raise_for_status()
             enterprise_data = response.json()
-            
+
             examples = []
-            
+
             # Обработка тактик
             if self.mitre_include_tactics:
                 for tactic in enterprise_data.get("objects", []):
@@ -69,7 +74,7 @@ class DatasetPreparation:
                              if ref.get("source_name") == "mitre-attack"),
                             "Unknown"
                         )
-                        
+
                         examples.append({
                             "instruction": "Опиши тактику атаки и предоставь рекомендации по защите",
                             "input": f"Тактика: {tactic.get('name')}\nID: {tactic_id}\nОписание: {tactic.get('description', '')}",
@@ -81,7 +86,7 @@ class DatasetPreparation:
                                      f"3. Обеспечить мониторинг сетевой активности\n"
                                      f"4. Поддерживать актуальность систем безопасности"
                         })
-            
+
             # Обработка техник
             if self.mitre_include_techniques:
                 for technique in enterprise_data.get("objects", []):
@@ -92,7 +97,7 @@ class DatasetPreparation:
                              if ref.get("source_name") == "mitre-attack"),
                             "Unknown"
                         )
-                        
+
                         examples.append({
                             "instruction": "Опиши технику атаки и предоставь рекомендации по защите",
                             "input": f"Техника: {technique.get('name')}\nID: {technique_id}\nОписание: {technique.get('description', '')}",
@@ -104,15 +109,15 @@ class DatasetPreparation:
                                      f"3. Проводить обучение сотрудников\n"
                                      f"4. Внедрить принцип наименьших привилегий"
                         })
-            
+
             print(f"Successfully downloaded {len(examples)} examples from MITRE ATT&CK")
             return examples
-            
+
         except requests.exceptions.RequestException as e:
             print(f"Error downloading MITRE ATT&CK data: {str(e)}")
             print("Falling back to local examples...")
             return self._get_local_mitre_examples()
-    
+
     def _get_local_mitre_examples(self) -> List[Dict[str, Any]]:
         """Возвращает локальные примеры MITRE ATT&CK."""
         return [
@@ -137,43 +142,43 @@ class DatasetPreparation:
                          "4. Внедрить систему обнаружения фишинговых атак"
             }
         ]
-    
+
     def download_cve_data(self) -> List[Dict[str, Any]]:
         """Загрузка и обработка данных CVE."""
         print("Downloading CVE data...")
-        
+
         if not self.nvd_api_key:
             print("Warning: NVD API key not provided. Using local examples instead.")
             return self._get_local_cve_examples()
-        
+
         # Получаем вчерашнюю дату в UTC как конечную точку
         current_time = datetime.now(timezone.utc)
         end_date = current_time - timedelta(days=1)  # Используем вчерашний день
-        
+
         # Используем 118 дней как период (немного меньше максимального для надежности)
         max_days = min(self.cve_days_lookback, 118)
         start_date = end_date - timedelta(days=max_days)
-        
+
         # Форматируем даты в ISO 8601 формат, который ожидает NVD API
         start_date_str = start_date.strftime("%Y-%m-%dT00:00:00Z")
         end_date_str = end_date.strftime("%Y-%m-%dT23:59:59Z")
-        
+
         print(f"Current UTC time: {current_time}")
         print(f"Using end date: {end_date}")
         print(f"Requesting CVE data from {start_date_str} to {end_date_str}")
         print(f"Note: Using {max_days} days lookback period (limited to 118 days for reliability)")
-        
+
         url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-        
+
         headers = {
             "apiKey": self.nvd_api_key,
             "Accept": "application/json"
         }
-        
+
         examples = []
         total_results = 0
         start_index = 0
-        
+
         while total_results < self.cve_max_results:
             params = {
                 "pubStartDate": start_date_str,
@@ -181,43 +186,48 @@ class DatasetPreparation:
                 "resultsPerPage": self.cve_results_per_page,
                 "startIndex": start_index
             }
-            
+
             try:
                 print(f"Requesting CVE data (page {start_index // self.cve_results_per_page + 1})...")
-                response = requests.get(url, headers=headers, params=params)
-                
+                response = requests.get(
+                    url,
+                    headers=headers,
+                    params=params,
+                    timeout=self.request_timeout_seconds,
+                )
+
                 if response.status_code != 200:
                     print(f"Error response from NVD API:")
                     print(f"Status code: {response.status_code}")
                     print(f"Response headers: {dict(response.headers)}")
                     print(f"Response body: {response.text[:500]}...")
                     response.raise_for_status()
-                
+
                 data = response.json()
-                
+
                 if "vulnerabilities" not in data:
                     print(f"Unexpected API response structure: {data.keys()}")
                     break
-                
+
                 # Проверяем, есть ли еще результаты
                 if not data.get("vulnerabilities"):
                     print("No more CVE results available")
                     break
-                
+
                 for vuln in data.get("vulnerabilities", []):
                     if total_results >= self.cve_max_results:
                         print(f"Reached maximum number of CVE results ({self.cve_max_results})")
                         break
-                    
+
                     cve = vuln.get("cve", {})
-                    
+
                     # Получаем описание на английском языке
                     description = next(
                         (desc.get("value") for desc in cve.get("descriptions", [])
                          if desc.get("lang") == "en"),
                         "No description available"
                     )
-                    
+
                     # Получаем CVSS score
                     cvss_score = 0.0
                     if "metrics" in cve:
@@ -225,19 +235,19 @@ class DatasetPreparation:
                             cvss_score = float(cve["metrics"]["cvssMetricV31"][0]["cvssData"]["baseScore"])
                         elif "cvssMetricV2" in cve["metrics"]:
                             cvss_score = float(cve["metrics"]["cvssMetricV2"][0]["cvssData"]["baseScore"])
-                    
+
                     # Пропускаем уязвимости с низким CVSS score
                     if cvss_score < self.cve_min_cvss_score:
                         continue
-                    
+
                     # Получаем вектор атаки
                     attack_vector = "Unknown"
                     if "metrics" in cve and "cvssMetricV31" in cve["metrics"]:
                         attack_vector = cve["metrics"]["cvssMetricV31"][0]["cvssData"].get("attackVector", "Unknown")
-                    
+
                     # Получаем дату публикации
                     published = cve.get("published", "Unknown")
-                    
+
                     examples.append({
                         "instruction": "Проанализируй уязвимость и предоставь рекомендации по исправлению",
                         "input": f"CVE ID: {cve.get('id')}\n"
@@ -258,24 +268,24 @@ class DatasetPreparation:
                                  f"5. Провести аудит безопасности системы"
                     })
                     total_results += 1
-                
+
                 # Проверяем, есть ли еще страницы
                 if len(data.get("vulnerabilities", [])) < self.cve_results_per_page:
                     print("No more pages available")
                     break
-                
+
                 start_index += self.cve_results_per_page
-                
+
             except requests.exceptions.RequestException as e:
                 print(f"Error downloading CVE data: {str(e)}")
                 if hasattr(e, 'response') and e.response is not None:
                     print(f"Error details: {e.response.text[:500]}...")
                 print("Falling back to local examples...")
                 return self._get_local_cve_examples()
-        
+
         print(f"Successfully downloaded {len(examples)} CVE examples (filtered by CVSS score >= {self.cve_min_cvss_score})")
         return examples
-    
+
     def _get_local_cve_examples(self) -> List[Dict[str, Any]]:
         """Возвращает локальные примеры CVE."""
         return [
@@ -306,22 +316,24 @@ class DatasetPreparation:
                          "4. Настроить мониторинг попыток эксплуатации"
             }
         ]
-    
+
     def download_nist_framework(self) -> List[Dict[str, Any]]:
         """Загрузка данных из NIST Cybersecurity Framework."""
         print("Downloading NIST Cybersecurity Framework data...")
-        
+
         url = "https://raw.githubusercontent.com/usnistgov/csf/main/framework.json"
         headers = {
             "Accept": "application/json",
             "User-Agent": "Security-LLM-Dataset-Preparation"
         }
-        
+
         try:
-            response = requests.get(url, headers=headers)
+            response = requests.get(
+                url, headers=headers, timeout=self.request_timeout_seconds
+            )
             response.raise_for_status()
             data = response.json()
-            
+
             examples = []
             for category in data.get("framework", {}).get("categories", []):
                 examples.append({
@@ -337,10 +349,10 @@ class DatasetPreparation:
                              f"4. Настроить мониторинг и аудит\n"
                              f"5. Регулярно проводить оценку эффективности"
                 })
-            
+
             print(f"Successfully downloaded {len(examples)} examples from NIST Framework")
             return examples
-            
+
         except requests.exceptions.RequestException as e:
             print(f"Error downloading NIST Framework data: {str(e)}")
             return []
@@ -348,33 +360,35 @@ class DatasetPreparation:
     def download_mitre_cwe(self) -> List[Dict[str, Any]]:
         """Загрузка данных из MITRE CWE."""
         print("Downloading MITRE CWE data...")
-        
+
         url = "https://cwe.mitre.org/data/xml/cwec_latest.xml.zip"
         headers = {
             "Accept": "application/zip",
             "User-Agent": "Security-LLM-Dataset-Preparation"
         }
-        
+
         try:
             # Скачиваем и распаковываем XML
-            response = requests.get(url, headers=headers)
+            response = requests.get(
+                url, headers=headers, timeout=self.request_timeout_seconds
+            )
             response.raise_for_status()
-            
+
             import zipfile
             import io
             import xml.etree.ElementTree as ET
-            
+
             with zipfile.ZipFile(io.BytesIO(response.content)) as zip_ref:
                 xml_content = zip_ref.read(zip_ref.namelist()[0])
-            
+
             root = ET.fromstring(xml_content)
             examples = []
-            
+
             for weakness in root.findall(".//{http://cwe.mitre.org/cwe-6}Weakness"):
                 cwe_id = weakness.get("ID", "Unknown")
                 name = weakness.find(".//{http://cwe.mitre.org/cwe-6}Title").text
                 description = weakness.find(".//{http://cwe.mitre.org/cwe-6}Description").text
-                
+
                 examples.append({
                     "instruction": "Опиши уязвимость и предоставь рекомендации по защите",
                     "input": f"CWE ID: {cwe_id}\n"
@@ -389,10 +403,10 @@ class DatasetPreparation:
                              f"4. Провести обучение разработчиков\n"
                              f"5. Регулярно проводить тестирование на наличие уязвимости"
                 })
-            
+
             print(f"Successfully downloaded {len(examples)} examples from MITRE CWE")
             return examples
-            
+
         except (requests.exceptions.RequestException, zipfile.BadZipFile, ET.ParseError) as e:
             print(f"Error downloading MITRE CWE data: {str(e)}")
             return []
@@ -400,25 +414,27 @@ class DatasetPreparation:
     def download_owasp_data(self) -> List[Dict[str, Any]]:
         """Загрузка данных из OWASP (Top 10 и Cheat Sheets)."""
         print("Downloading OWASP data...")
-        
+
         # OWASP Top 10
         top10_url = "https://raw.githubusercontent.com/OWASP/Top10/master/2021/data.json"
         # OWASP Cheat Sheets
         cheat_sheets_url = "https://raw.githubusercontent.com/OWASP/CheatSheetSeries/master/Index.md"
-        
+
         headers = {
             "Accept": "application/json",
             "User-Agent": "Security-LLM-Dataset-Preparation"
         }
-        
+
         examples = []
-        
+
         try:
             # Загрузка Top 10
-            response = requests.get(top10_url, headers=headers)
+            response = requests.get(
+                top10_url, headers=headers, timeout=self.request_timeout_seconds
+            )
             response.raise_for_status()
             top10_data = response.json()
-            
+
             for risk in top10_data.get("data", []):
                 examples.append({
                     "instruction": "Опиши риск безопасности и предоставь рекомендации по защите",
@@ -435,23 +451,27 @@ class DatasetPreparation:
                              f"4. Провести обучение персонала\n"
                              f"5. Регулярно проводить тестирование"
                 })
-            
+
             # Загрузка Cheat Sheets
-            response = requests.get(cheat_sheets_url)
+            response = requests.get(
+                cheat_sheets_url, timeout=self.request_timeout_seconds
+            )
             response.raise_for_status()
             cheat_sheets_content = response.text
-            
+
             # Парсим Markdown для получения списка cheat sheets
             import re
             cheat_sheet_links = re.findall(r'\[(.*?)\]\((.*?)\)', cheat_sheets_content)
-            
+
             for title, url in cheat_sheet_links:
                 if "CheatSheet" in title:
                     try:
-                        sheet_response = requests.get(url)
+                        sheet_response = requests.get(
+                            url, timeout=self.request_timeout_seconds
+                        )
                         sheet_response.raise_for_status()
                         content = sheet_response.text
-                        
+
                         # Извлекаем основное содержание
                         main_content = re.search(r'##.*?\n(.*?)(?=##|$)', content, re.DOTALL)
                         if main_content:
@@ -470,10 +490,10 @@ class DatasetPreparation:
                             })
                     except requests.exceptions.RequestException:
                         continue
-            
+
             print(f"Successfully downloaded {len(examples)} examples from OWASP")
             return examples
-            
+
         except requests.exceptions.RequestException as e:
             print(f"Error downloading OWASP data: {str(e)}")
             return []
@@ -483,26 +503,26 @@ class DatasetPreparation:
         if not self.include_security_docs:
             print("Security documentation examples disabled in configuration")
             return []
-            
+
         print("Preparing security documentation examples...")
-        
+
         all_examples = []
-        
+
         # Загружаем данные из различных источников
         all_examples.extend(self.download_nist_framework())
         all_examples.extend(self.download_mitre_cwe())
         all_examples.extend(self.download_owasp_data())
-        
+
         # Добавляем базовые примеры, если не удалось загрузить данные
         if not all_examples:
             print("Falling back to local examples...")
             all_examples.extend(self._get_local_security_examples())
-        
+
         # Ограничиваем количество примеров
         if len(all_examples) > self.max_docs_examples:
             print(f"Limiting security documentation examples to {self.max_docs_examples} (from {len(all_examples)})")
             all_examples = all_examples[:self.max_docs_examples]
-        
+
         print(f"Prepared {len(all_examples)} security documentation examples")
         return all_examples
 
@@ -527,34 +547,44 @@ class DatasetPreparation:
                          "   - Обеспечение отказоустойчивости систем"
             }
         ]
-    
+
     def prepare_dataset(self) -> None:
         """Подготовка полного датасета."""
         # Собираем примеры из всех источников
         all_examples = []
-        
+
         if self.mitre_include_tactics or self.mitre_include_techniques:
             all_examples.extend(self.download_mitre_attack())
-        
+
         all_examples.extend(self.download_cve_data())
-        
+
         if self.include_security_docs:
             all_examples.extend(self.prepare_security_documentation())
-        
+
+        if len(all_examples) < 2:
+            raise ValueError(
+                "At least two examples are required to create non-empty train "
+                "and eval splits. Check the data sources or configuration."
+            )
+
         import random
         random.shuffle(all_examples)
-        
+
         # Разделяем на train и validation
-        split_idx = int(len(all_examples) * self.cfg.dataset.dataset.train_val_split_ratio)
+        split_ratio = float(self.cfg.dataset.dataset.train_val_split_ratio)
+        split_idx = min(
+            len(all_examples) - 1,
+            max(1, int(len(all_examples) * split_ratio)),
+        )
         train_examples = all_examples[:split_idx]
         val_examples = all_examples[split_idx:]
-        
+
         with open(self.output_dir / "train.json", "w", encoding="utf-8") as f:
             json.dump(train_examples, f, ensure_ascii=False, indent=2)
-        
+
         with open(self.output_dir / "eval.json", "w", encoding="utf-8") as f:
             json.dump(val_examples, f, ensure_ascii=False, indent=2)
-        
+
         print(f"Dataset prepared and saved to {self.output_dir}")
         print(f"Total examples: {len(all_examples)}")
         print(f"Train examples: {len(train_examples)}")
@@ -565,14 +595,14 @@ def main(cfg: DictConfig):
     """Main function to prepare the dataset."""
     print("Loading configuration...")
     print(OmegaConf.to_yaml(cfg))
-    
+
     # Create dataset preparation instance
     dataset_prep = DatasetPreparation(cfg)
-    
+
     # Prepare dataset
     dataset_prep.prepare_dataset()
-    
+
     print("Dataset preparation completed!")
 
 if __name__ == "__main__":
-    main() 
+    main()

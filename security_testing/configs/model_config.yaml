@@ -2,7 +2,7 @@
 base_model: mistralai/Mistral-7B-v0.1
 tokenizer_dir: models/tokenizer
 torch_dtype: float16
-trust_remote_code: true
+trust_remote_code: false
 adapter_name: qlora
 adapters_dir_relative: models/adapters
 

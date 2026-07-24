@@ -1,5 +1,6 @@
 # Base model configuration
 model:
+  id: base
   # Common model settings
   torch_dtype: float32
   device_map: auto
@@ -14,4 +15,4 @@ model:
     per_device_eval_batch_size: 4
     gradient_accumulation_steps: 4
     learning_rate: 5.0e-5
-    max_length: 512 
+    max_length: 512

@@ -28,6 +28,7 @@ except ImportError:  # pragma: no cover - optional dependency
 from evaluation.evaluator import SecurityModelEvaluator
 from training.dataset import SecurityDataset
 from training.trainer import SecurityModelTrainer
+from training.utils import update_paths_with_run_id
 
 
 def _get_git_sha() -> Optional[str]:
@@ -280,6 +281,9 @@ def _evaluate(cfg: DictConfig, adapter_path: str) -> Dict[str, Any]:
 
 @hydra.main(version_base=None, config_path="../configs", config_name="pipeline/base")
 def main(cfg: DictConfig) -> None:
+    # Генерируем Run ID и динамически обновляем пути
+    run_id = update_paths_with_run_id(cfg)
+    print(f"Generated Run ID: {run_id}")
     print(OmegaConf.to_yaml(cfg))
 
     if cfg.training.training.get("fsdp", {}).get("enabled", False):

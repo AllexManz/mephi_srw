@@ -1,4 +1,4 @@
-python src/data/prepare_dataset.py dataset=full
+python src/data/prepare_dataset.py dataset=small
 
 
 python src/train.py dataset=full
@@ -13,10 +13,10 @@ training.training.num_train_epochs=3 - изменить количество э�
 
 
 LoRA (самый простой и эффективный):
-python src/train.py peft.method=lora
+python src/train.py peft=lora
 
 QLoRA (для больших моделей):
-python src/train.py peft.method=qlora model.model.name=mistralai/Mistral-7B-v0.1
+python src/train.py peft=qlora model=mistral
 
 GRPO:
 python src/train.py training.training.method=grpo
@@ -34,10 +34,10 @@ FSDP (Mistral preset):
 python src/train.py training=fsdp_mistral
 
 Prefix Tuning:
-python src/train.py peft.method=prefix_tuning
+python src/train.py peft=prefix_tuning
 
 Prompt Tuning:
-python src/train.py peft.method=prompt_tuning
+python src/train.py peft=prompt_tuning
 
 Каждый метод имеет свои преимущества:
 LoRA: хороший баланс между качеством и эффективностью
@@ -47,7 +47,7 @@ Prompt Tuning: для простых задач с малым количеств
 
 
 Запустить TensorBoard для просмотра метрик:
-tensorboard --logdir models/checkpoints/tensorboard
+tensorboard --logdir logs
 
 
 SIEM (простой запуск анализа последних событий):

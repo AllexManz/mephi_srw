@@ -1,279 +1,105 @@
 # Security Language Model Assistant
 
-Проект по дообучению языковой модели для задач информационной безопасности с использованием PEFT (Parameter-Efficient Fine-Tuning) методов.
+Проект для обучения и оценки языковых моделей на задачах информационной безопасности. Он объединяет подготовку CVE/MITRE и SIEM-данных, SFT/LoRA/QLoRA, экспериментальные GSPO/GRPO, оценку security-метрик и отдельный набор тестов prompt injection, data leakage и data poisoning.
 
-## Структура проекта
+## Состав проекта
 
-```
-.
-├── configs/              # Конфигурационные файлы
-│   ├── model/           # Конфигурации моделей (Mistral, GPT-2)
-│   ├── peft/            # Конфигурации методов PEFT (LoRA)
-│   └── training/        # Конфигурации обучения
-├── data/                # Директория для датасетов
-│   ├── raw/            # Исходные данные
-│   └── processed/      # Обработанные данные для обучения
-├── logs/               # Директория для логов
-│   ├── tensorboard/    # Логи TensorBoard
-│   └── training/       # Логи обучения
-├── models/             # Директория для моделей
-│   ├── adapters/       # LoRA адаптеры
-│   ├── checkpoints/    # Чекпоинты моделей
-│   └── tokenizer/      # Токенизаторы
-├── notebooks/          # Jupyter notebooks для анализа
-├── src/                # Исходный код
-│   ├── data/          # Скрипты для обработки данных
-│   └── train.py       # Основной скрипт обучения
-├── security_testing/  # Инструментарий безопасностных экспериментов (этап 4)
-├── .env.example        # Пример файла с переменными окружения
-├── requirements.txt    # Зависимости проекта
-└── setup.sh           # Скрипт для настройки окружения
-```
+- `src/data/` — загрузка и подготовка CVE, MITRE ATT&CK, CWE, NIST и OWASP;
+- `src/training/` — датасет, Trainer, PEFT и policy-optimization;
+- `src/evaluation/` — perplexity, accuracy, security-метрики и внешние benchmark-ы;
+- `security_testing/` — генераторы атак, защиты, mock smoke-тесты и отчёты;
+- `configs/` — Hydra-конфигурации моделей, обучения, PEFT, датасетов и логирования;
+- `data/processed/` — локальные train/eval-данные;
+- `models/`, `logs/`, `outputs/` — результаты запусков (большие артефакты не предназначены для git).
 
-## Установка и настройка
+## Установка
 
-1. Клонируйте репозиторий:
+Требуется Python 3.9+ и, для большинства моделей, CUDA GPU. `setup.sh` создаёт conda-окружение, но для CUDA-версии PyTorch используйте команду с [официальной страницы PyTorch](https://pytorch.org/get-started/locally/).
 
 ```bash
-git clone https://github.com/your-username/security-llm.git
-cd security-llm
-```
-
-1. Создайте и настройте окружение:
-
-```bash
-# Создание conda окружения и установка зависимостей
-bash setup.sh
-
-# Активация окружения
+conda create -n security_llm python=3.9 -y
 conda activate security_llm
+python -m pip install -r requirements.txt
+```
 
-# Создание .env файла из примера
+Для воспроизводимой установки reference-окружения:
+
+```bash
+python -m pip install -r requirements.lock
+```
+
+Скопируйте настройки:
+
+```bash
 cp .env.example .env
 ```
 
-1. Настройте переменные окружения в `.env`:
+В `.env` укажите `NVD_API_KEY`, если нужен NVD API, и замените локальные MinIO credentials. Файл `.env` не коммитится.
+
+## Подготовка датасета
 
 ```bash
-# Пути к директориям (опционально)
-BASE_DIR=/path/to/project
-MODELS_DIR=/path/to/models
-LOGS_DIR=/path/to/logs
-CACHE_DIR=/path/to/cache
-
-# API ключи (обязательно для сбора данных)
-NVD_API_KEY=your_nvd_api_key
-MITRE_ATTACK_URL=https://attack.mitre.org/enterprise/attack.json
+python src/data/prepare_dataset.py dataset=small
 ```
 
-## Обучение модели
+Доступны профили `small`, `full` и `base`. Скрипт использует сетевые источники с timeout 30 секунд и создаёт непустые `train.json` и `eval.json`. Если источники недоступны, используются локальные fallback-примеры; при недостатке данных запуск завершается с понятной ошибкой.
 
-### Подготовка данных
+## Обучение и оценка
 
-1. Подготовьте датасет:
-
-```bash
-python src/data/prepare_dataset.py dataset=full
-```
-
-### Обучение
-
-1. Базовое обучение с Mistral-7B и LoRA:
-
-```bash
-python src/train.py model=mistral peft=lora
-```
-
-1. Обучение с GPT-2 (для тестирования):
+Примеры:
 
 ```bash
 python src/train.py model=gpt2 peft=lora
+python src/train.py model=mistral peft=qlora
+python src/train.py model=qwen2_5 peft=lora
+python src/evaluate.py model=gpt2 peft=lora
 ```
 
-1. Дополнительные опции:
+Доступные конфигурации моделей: `gpt2`, `mistral`, `qwen2`, `qwen2_5`, `phi3`, `gemma2`, `llama3_2`, `deepseek_r1_1_5b`. Большинство моделей требуют доступа к Hugging Face и значительных ресурсов. PEFT-режимы: `lora`, `qlora`, `prefix_tuning`, `prompt_tuning`, `base`.
+
+Пути и параметры можно переопределять через Hydra:
 
 ```bash
-# Изменение параметров обучения
-python src/train.py model=mistral peft=lora training.training.num_train_epochs=5
-
-# Отключение LoRA
-python src/train.py model=mistral peft=none
-
-# Изменение размера батча
-python src/train.py model=mistral peft=lora training.training.per_device_train_batch_size=2
+python src/train.py model=gpt2 peft=lora \
+  model.model.training.max_length=256 \
+  model.model.training.per_device_train_batch_size=1
 ```
 
-### RL стадия (GSPO/GRPO)
-
-RL‑стадия обучает модель с KL‑регуляризацией относительно референс‑модели.
+FSDP запускайте через `torchrun` и подходящий preset:
 
 ```bash
-python src/train.py training.training.method=gspo
-python src/train.py training.training.method=grpo
+torchrun --nproc_per_node=2 src/train.py model=gpt2 training=fsdp_gpt2
 ```
 
-Параметры RL‑стадии находятся в `configs/training/base.yaml`:
-
-- `training.policy_optimization.kl_coef` — вес KL‑регуляризации
-- `training.policy_optimization.temperature` — температура в KL‑терме
-
-### Мониторинг обучения
-
-1. TensorBoard:
+TensorBoard:
 
 ```bash
-tensorboard --logdir logs/tensorboard
+tensorboard --logdir logs
 ```
 
-1. Проверка логов:
+## SIEM и MLflow
 
-```bash
-# Логи обучения
-ls logs/training/
-
-# Чекпоинты модели
-ls models/checkpoints/
-
-# LoRA адаптеры
-ls models/adapters/
-```
-
-## Конфигурация
-
-Проект использует Hydra для управления конфигурацией. Основные конфигурационные файлы:
-
-- `configs/base.yaml` - основная конфигурация
-- `configs/model/` - конфигурации моделей
-- `configs/peft/` - конфигурации методов PEFT
-- `configs/training/` - параметры обучения
-
-## Интеграция с SIEM
-
-Минимальный запуск анализа последних событий:
+Простой SIEM-запуск:
 
 ```bash
 python src/run_siem_simple.py
-```
-
-Режим мониторинга/исторического анализа:
-
-```bash
 python src/run_siem.py --mode monitor --interval 60 --time-window 5
-python src/run_siem.py --mode analyze --start-time 2025-01-01T00:00:00
 ```
 
-## FSDP обучение
-
-Запуск под FSDP лучше делать через `torchrun`:
-
-```bash
-torchrun --nproc_per_node=2 src/train.py training=fsdp_gpt2
-```
-
-Для Mistral:
-
-```bash
-torchrun --nproc_per_node=2 src/train.py training=fsdp_mistral model=mistral
-```
-
-## Пайплайн обучения
-
-Полный пайплайн: сбор событий из SIEM → обработка → QLoRA → GSPO → оценка.
+Полный pipeline: Elasticsearch → датасет → QLoRA → GSPO → evaluation:
 
 ```bash
 python src/train_pipeline.py
 ```
 
-## Метрики оценки
-
-Считаются и логируются в `evaluation_metrics.json` и TensorBoard:
-
-- Average Reward
-- Threat Detection Accuracy
-- False Positive Rate
-- False Negative Rate
-- Expert Preference Rate
-- MITRE ATT&CK Coverage
-- Sequential Event Handling
-- Average Response Time
-- Multi-stage Attack Detection
-- Temporal Context Accuracy
-
-### Как считаются метрики
-
-- Average Reward — среднее по полю `reward` (или числу, извлеченному из ответа).
-- Threat Detection Accuracy — доля совпадений бинарного класса «угроза»/«нет угрозы» по `threat_level` (high/medium → угроза, low → нет).
-- False Positive Rate — FP / N, где N — число негативных примеров.
-- False Negative Rate — FN / P, где P — число позитивных примеров.
-- Expert Preference Rate — доля точных совпадений с `expert_preferred_output`.
-- MITRE ATT&CK Coverage — доля найденных ID (TXXXX[.XXX]) от ожидаемого списка `mitre_attack`.
-- Sequential Event Handling — доля примеров, где в ответе упомянут `sequence_index`.
-- Average Response Time — среднее `response_time_seconds` (из генерации).
-- Multi-stage Attack Detection — доля примеров, где в ответе присутствует хотя бы один из `attack_stages`.
-- Temporal Context Accuracy — доля примеров, где в ответе присутствует `temporal_label`.
-
-Если поле отсутствует — метрика не считается и сохраняется как `null`.
-
-### Требуемые поля в eval.json
-
-- `reward`
-- `threat_level` или `is_threat`
-- `expert_preferred_output`
-- `mitre_attack` (List[str])
-- `sequence_id`, `sequence_index`
-- `attack_stages` (List[str])
-- `temporal_label`
-
-## Эксперименты по безопасности (`security_testing/`)
-
-Артефакты генерации: `security_testing/test_cases/`; результаты прогонов: `security_testing/results/` (локальные JSON).
-
-Из корня репозитория задайте `PYTHONPATH=.`, затем выполните сценарий:
+Локальный MLflow можно запустить без Docker:
 
 ```bash
-# 1. Датасеты
-PYTHONPATH=. python3 security_testing/datasets/generate_prompt_injection.py
-PYTHONPATH=. python3 security_testing/datasets/generate_data_leakage.py
-PYTHONPATH=. python3 security_testing/datasets/generate_poisoned_data.py
-
-# 2. Быстрый smoke-тест без весов модели
-PYTHONPATH=. python3 security_testing/evaluation/run_full_evaluation.py --limit 4
-
-# 3. Реальный Mistral + QLoRA (GPU и адаптер по `security_testing/configs/model_config.yaml`)
-PYTHONPATH=. python3 security_testing/attacks/run_prompt_injection.py --output security_testing/results/pi_baseline.json
-PYTHONPATH=. python3 security_testing/attacks/run_prompt_injection.py --with-defense --output security_testing/results/pi_protected.json
-PYTHONPATH=. python3 security_testing/attacks/run_data_leakage.py --output security_testing/results/dl_baseline.json
-PYTHONPATH=. python3 security_testing/attacks/run_poisoning.py --output security_testing/results/poison_baseline.json
-
-# 4. Сводка для отчёта
-PYTHONPATH=. python3 security_testing/evaluation/compare_results.py \
-  --pi-base security_testing/results/pi_baseline.json \
-  --pi-sec security_testing/results/pi_protected.json \
-  --dl-base security_testing/results/dl_baseline.json \
-  --dl-sec security_testing/results/dl_protected.json \
-  --poison-base security_testing/results/poison_baseline.json \
-  --poison-def security_testing/results/poison_protected.json \
-  --out security_testing/results/final_comparison.json
-
-PYTHONPATH=. python3 security_testing/evaluation/generate_tables.py \
-  --pi-base security_testing/results/pi_baseline.json \
-  --pi-sec security_testing/results/pi_protected.json \
-  --poison security_testing/results/poison_protected.json \
-  --out security_testing/tables/report.md
-```
-
-Дополнительно: `security_testing/configs/defense_config.yaml`. DP‑SGD без жёсткой привязки к `train.py` — см. `security_testing/defenses/dp_training.py` (заглушка + опционально `opacus`).
-
-## MLflow
-
-По умолчанию используется локальное хранилище (`file:./mlruns`). Можно указать внешний сервер:
-
-```bash
-export MLFLOW_TRACKING_URI=http://localhost:5000
+export MLFLOW_TRACKING_URI=file:./mlruns
 python src/train_pipeline.py
 ```
 
-Для полноценной интеграции с внешним артефакт-хранилищем используйте `docker-compose`:
+Для Docker сначала заполните `.env`, затем:
 
 ```bash
 docker compose up -d
@@ -281,34 +107,45 @@ export MLFLOW_TRACKING_URI=http://localhost:5000
 python src/train_pipeline.py
 ```
 
-## Требования
+Compose намеренно не содержит credentials по умолчанию и завершится с ошибкой, если `MINIO_ROOT_USER` или `MINIO_ROOT_PASSWORD` не заданы.
 
-### Минимальные требования
+## Security testing
 
-- Python 3.9+
-- 16GB RAM
-- 50GB свободного места на диске
+Быстрый mock-прогон без весов модели:
 
-### Рекомендуемые требования для обучения
+```bash
+PYTHONPATH=. python3 security_testing/evaluation/run_full_evaluation.py --limit 4
+```
 
-- CUDA-совместимая GPU с 16GB+ VRAM
-- 32GB+ RAM
-- 100GB+ свободного места на диске
+Генерация тестовых наборов и реальные прогоны описаны в `security_testing/evaluation/` и используют `security_testing/configs/model_config.yaml`. Загрузка `trust_remote_code` по умолчанию отключена: включайте её только для проверенного репозитория, явно изменив конфигурацию и осознавая риск выполнения стороннего Python-кода.
 
-### Рекомендуемые требования для инференса
+## Тесты
 
-- CUDA-совместимая GPU с 8GB+ VRAM
-- 16GB+ RAM
-- 20GB+ свободного места на диске
+Быстрые тесты не скачивают модели:
+
+```bash
+python run_tests.py
+```
+
+Модельные snapshot-тесты — интеграционные, требуют сети, Hugging Face cache, CPU/GPU и могут занимать много времени. Запускайте их отдельно:
+
+```bash
+RUN_MODEL_TESTS=1 python run_tests.py
+```
+
+Результаты оценки сохраняются в `logs/`, адаптеры и checkpoints — в `models/`. Эти директории могут занимать десятки гигабайт и не должны попадать в обычные коммиты.
+
+## Метрики
+
+Основные метрики: perplexity, accuracy, average reward, threat detection accuracy, false-positive/false-negative rate, MITRE ATT&CK coverage, sequential event handling, response time, multi-stage detection и temporal context accuracy. Метрика сохраняется как `null`, если в eval-примерах нет необходимых полей.
+
+## Безопасность и воспроизводимость
+
+- Не храните API keys, MLflow credentials и модельные токены в git.
+- Не включайте `trust_remote_code` для непроверенных моделей.
+- Используйте `requirements.lock` для reference-окружения; обновляйте lock-файл осознанно при смене стека.
+- Не используйте production secrets в локальном `docker-compose`.
 
 ## Лицензия
 
 MIT
-
-## Примечания
-
-- Для обучения Mistral-7B требуется GPU с достаточным объемом VRAM
-- Для тестирования можно использовать GPT-2, который требует меньше ресурсов
-- Все пути к директориям можно настроить через переменные окружения
-- Логи и чекпоинты сохраняются в соответствующих директориях, структура которых сохраняется в git
-

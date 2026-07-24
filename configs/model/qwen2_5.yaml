@@ -1,0 +1,20 @@
+defaults:
+  - base
+
+# Qwen2.5-1.5B-Instruct model configuration (released late 2024, state-of-the-art in 2026)
+model:
+  id: qwen2_5
+  name: Qwen/Qwen2.5-1.5B-Instruct
+  torch_dtype: bfloat16
+  device_map: auto
+  trust_remote_code: false
+  use_cache: false
+  load_in_8bit: false
+  load_in_4bit: false
+  # Model-specific training settings
+  training:
+    per_device_train_batch_size: 20
+    per_device_eval_batch_size: 20
+    gradient_accumulation_steps: 4
+    learning_rate: 1e-4
+    max_length: 512

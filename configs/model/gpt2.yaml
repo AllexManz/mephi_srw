@@ -3,6 +3,7 @@ defaults:
   - base
 
 model:
+  id: gpt2
   name: gpt2
   torch_dtype: float32  # GPT-2 works well with float32
   device_map: null  # Changed from "auto" to null for CPU training

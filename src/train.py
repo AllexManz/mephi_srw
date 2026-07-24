@@ -37,367 +37,20 @@ import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 import time  # Добавляем импорт в начало файла
 
-from training.callbacks import (
-    PerplexityCallback,
-    DetailedLoggingCallback,
-    TensorBoardCallback
-)
-from training.utils import setup_model_for_training
-from training.policy import PolicyOptimTrainer, create_reference_model
-
-class SecurityDataset(Dataset):
-    """Датасет для обучения модели на примерах безопасности."""
-    
-    def __init__(self, examples: List[Dict[str, Any]], tokenizer: AutoTokenizer, max_length: int = 512):
-        self.examples = examples
-        self.tokenizer = tokenizer
-        self.max_length = max_length
-        
-    def __len__(self) -> int:
-        return len(self.examples)
-    
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        example = self.examples[idx]
-        
-        # Формируем текст для обучения
-        text = f"""### Инструкция: {example['instruction']}
-
-### Контекст: {example.get('context', '')}
-
-### Вход: {example['input']}
-
-### Ответ: {example['output']}"""
-        
-        # Токенизируем текст
-        encodings = self.tokenizer(
-            text,
-            truncation=True,
-            max_length=self.max_length,
-            padding="max_length",
-            return_tensors="pt"
-        )
-        
-        return {
-            "input_ids": encodings["input_ids"].squeeze(),
-            "attention_mask": encodings["attention_mask"].squeeze(),
-            "labels": encodings["input_ids"].squeeze()
-        }
-
-class SecurityModelTrainer:
-    """Тренер для обучения модели безопасности с поддержкой различных методов PEFT."""
-    
-    def __init__(
-        self,
-        model_name: str,
-        output_dir: str,
-        cfg: DictConfig
-    ):
-        self.model_name = model_name
-        self.output_dir = output_dir
-        self.cfg = cfg
-        
-        # Инициализация токенизатора
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.tokenizer.pad_token = self.tokenizer.eos_token
-        
-        # Инициализация модели
-        self.model = self._setup_model()
-        
-        # Инициализация TensorBoard
-        self.writer = SummaryWriter(log_dir=self.cfg.paths.tensorboard_dir)
-    
-    def _setup_model(self) -> PreTrainedModel:
-        """Initialize the model with proper training setup."""
-        print(f"Loading model from {self.cfg.model.model.name}...")
-        model = setup_model_for_training(
-            self.cfg.model.model.name,
-            self.cfg,
-            device_map=self.cfg.model.model.device_map
-        )
-
-        # Enable gradient checkpointing for memory efficiency
-        if self.cfg.training.training.optimization.gradient_checkpointing:
-            model.gradient_checkpointing_enable()
-        
-        # Set model to training mode
-        model.train()
-        
-        # Configure PEFT if enabled
-        if self.cfg.peft.peft.enabled:
-            print(f"Setting up {self.cfg.peft.peft.method}...")
-            model = self._setup_peft(model)
-        
-        return model
-    
-    def _setup_peft(self, model: PreTrainedModel) -> PreTrainedModel:
-        """Configure PEFT for the model."""
-        if self.cfg.peft.peft.method in ("lora", "qlora"):
-            # QLoRA использует тот же LoRA-адаптер поверх 4-bit базы (см. qlora.yaml + setup_model_for_training)
-            # Convert target_modules from ListConfig to regular list
-            target_modules = list(self.cfg.peft.peft.lora.target_modules)
-            
-            # Configure LoRA
-            peft_config = LoraConfig(
-                task_type=self.cfg.peft.peft.common.task_type,
-                inference_mode=False,
-                r=self.cfg.peft.peft.lora.r,
-                lora_alpha=self.cfg.peft.peft.lora.alpha,
-                lora_dropout=self.cfg.peft.peft.lora.lora_dropout,
-                target_modules=target_modules,  # Use converted list
-                bias=self.cfg.peft.peft.lora.bias,
-                modules_to_save=self.cfg.peft.peft.lora.modules_to_save
-            )
-            
-            # Apply LoRA to model
-            model = get_peft_model(model, peft_config)
-            
-            # Ensure LoRA parameters are trainable
-            for name, param in model.named_parameters():
-                if "lora" in name:
-                    param.requires_grad_(True)
-            
-            # Print parameter statistics
-            trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-            all_params = sum(p.numel() for p in model.parameters())
-            print(f"Trainable params: {trainable_params:,} || all params: {all_params:,} || trainable%: {100 * trainable_params / all_params:.2f}%")
-            
-            return model
-        else:
-            raise ValueError(f"Unsupported PEFT method: {self.cfg.peft.peft.method}")
-    
-    def _setup_training_args(self) -> TrainingArguments:
-        """Configure training arguments."""
-        # Определяем устройство для обучения
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        
-        # Определяем список активных бэкендов для логирования
-        report_to = []
-        if self.cfg.logging.tensorboard.enabled:
-            report_to.append("tensorboard")
-        if self.cfg.logging.wandb.enabled and wandb is not None:
-            report_to.append("wandb")
-        elif self.cfg.logging.wandb.enabled:
-            print("logging.wandb.enabled=true but wandb is not installed; skipping Weights & Biases reporting.")
-
-        fsdp = None
-        fsdp_config = None
-        fsdp_cfg = self.cfg.training.training.get("fsdp", {})
-        if fsdp_cfg.get("enabled", False):
-            strategy = fsdp_cfg.get("sharding_strategy", "full_shard")
-            fsdp = f"{strategy} auto_wrap" if fsdp_cfg.get("auto_wrap", True) else strategy
-            fsdp_config = {
-                "backward_prefetch": fsdp_cfg.get("backward_prefetch", "backward_pre"),
-                "state_dict_type": fsdp_cfg.get("state_dict_type", "full_state_dict"),
-                "use_orig_params": fsdp_cfg.get("use_orig_params", True),
-                "sync_module_states": fsdp_cfg.get("sync_module_states", True),
-                "cpu_offload": fsdp_cfg.get("cpu_offload", False),
-                "min_num_params": fsdp_cfg.get("min_num_params", 0)
-            }
-            layer_cls = fsdp_cfg.get("transformer_layer_cls", [])
-            if layer_cls:
-                fsdp_config["transformer_layer_cls_to_wrap"] = list(layer_cls)
-            mixed_precision = fsdp_cfg.get("mixed_precision")
-            if mixed_precision in {"fp16", "bf16"}:
-                fsdp_config["mixed_precision"] = mixed_precision
-
-        ta_eval = self.cfg.training.training.evaluation
-
-        kw: Dict[str, Any] = dict(
-            output_dir=self.cfg.paths.checkpoints_dir,
-            num_train_epochs=self.cfg.training.training.num_train_epochs,
-            per_device_train_batch_size=self.cfg.model.model.training.per_device_train_batch_size,
-            per_device_eval_batch_size=self.cfg.model.model.training.per_device_eval_batch_size,
-            gradient_accumulation_steps=self.cfg.model.model.training.gradient_accumulation_steps,
-            learning_rate=self.cfg.model.model.training.learning_rate,
-            weight_decay=self.cfg.training.training.weight_decay,
-            warmup_steps=self.cfg.training.training.warmup_steps,
-            max_grad_norm=self.cfg.training.training.max_grad_norm,
-            lr_scheduler_type=self.cfg.training.training.lr_scheduler_type,
-            no_cuda=not torch.cuda.is_available(),
-            logging_dir=self.cfg.paths.training_logs_dir,
-            logging_steps=self.cfg.logging.logging.logging_steps,
-            logging_first_step=self.cfg.logging.logging.logging_first_step,
-            report_to=report_to,
-            eval_strategy=ta_eval.eval_strategy,
-            eval_steps=ta_eval.eval_steps,
-            metric_for_best_model=ta_eval.metric_for_best_model,
-            greater_is_better=ta_eval.greater_is_better,
-            load_best_model_at_end=ta_eval.load_best_model_at_end,
-            save_strategy=self.cfg.training.training.save.save_strategy,
-            save_steps=self.cfg.training.training.save.save_steps,
-            save_total_limit=self.cfg.training.training.save.save_total_limit,
-            fp16=self.cfg.training.training.optimization.fp16 and torch.cuda.is_available(),
-            gradient_checkpointing=self.cfg.training.training.optimization.gradient_checkpointing,
-            dataloader_num_workers=self.cfg.training.training.optimization.dataloader_num_workers,
-            dataloader_pin_memory=self.cfg.training.training.optimization.dataloader_pin_memory,
-            seed=self.cfg.training.training.seed,
-            remove_unused_columns=False,
-        )
-        if fsdp is not None:
-            kw["fsdp"] = fsdp
-            kw["fsdp_config"] = fsdp_config
-        return TrainingArguments(**kw)
-    
-    def train(
-        self,
-        train_dataset: DatasetDict,
-        eval_dataset: Optional[DatasetDict] = None
-    ):
-        """Обучение модели."""
-        self.start_time = time.time()
-        training_method = self.cfg.training.training.get("method", "sft").lower()
-        fsdp_enabled = self.cfg.training.training.get("fsdp", {}).get("enabled", False)
-        if fsdp_enabled and self.cfg.peft.peft.enabled and self.cfg.peft.peft.method == "qlora":
-            print("Warning: FSDP with QLoRA may be unstable. Consider disabling FSDP or QLoRA.")
-        if self.cfg.logging.wandb.enabled and wandb is not None:
-            wandb.init(
-                project=self.cfg.logging.wandb.project,
-                name=self.cfg.logging.wandb.name,
-                config={
-                    "model_name": self.model_name,
-                    "peft_method": self.cfg.peft.peft.method if self.cfg.peft.peft.enabled else "full",
-                    **OmegaConf.to_container(self.cfg.model, resolve=True),
-                    **OmegaConf.to_container(self.cfg.training, resolve=True),
-                    **OmegaConf.to_container(self.cfg.peft, resolve=True)
-                }
-            )
-        
-        training_args = self._setup_training_args()
-        
-        # Добавляем callbacks для логирования
-        callbacks = [
-            PerplexityCallback(),
-            DetailedLoggingCallback(),
-            TensorBoardCallback(self.writer)
-        ]
-        
-        # Если eval_dataset не передан, отключаем оценку
-        if eval_dataset is None:
-            training_args.eval_strategy = "no"
-            eval_dataset = None
-        else:
-            eval_dataset = eval_dataset["validation"]
-        
-        # Убедимся, что TensorBoard включен
-        if "tensorboard" not in training_args.report_to:
-            training_args.report_to = list(training_args.report_to) + ["tensorboard"]
-        
-        trainer_cls = Trainer
-        ref_model = None
-        if training_method in {"grpo", "gspo"}:
-            trainer_cls = PolicyOptimTrainer
-            ref_model = create_reference_model(self.model_name, self.cfg)
-
-        trainer_kwargs: Dict[str, Any] = dict(
-            model=self.model,
-            args=training_args,
-            train_dataset=train_dataset["train"],
-            eval_dataset=eval_dataset,
-            data_collator=DataCollatorForLanguageModeling(
-                tokenizer=self.tokenizer,
-                mlm=False
-            ),
-            callbacks=callbacks,
-        )
-        if trainer_cls is not Trainer:
-            trainer_kwargs.update(
-                ref_model=ref_model,
-                policy_method=training_method,
-                policy_config=self.cfg.training.training.get("policy_optimization", {}),
-            )
-
-        trainer = trainer_cls(**trainer_kwargs)
-        
-        # Логируем информацию о модели
-        print("\n=== Информация о модели ===")
-        print(f"Размер модели: {sum(p.numel() for p in self.model.parameters()):,} параметров")
-        print(f"Обучаемые параметры: {sum(p.numel() for p in self.model.parameters() if p.requires_grad):,}")
-        print(f"Размер батча: {training_args.per_device_train_batch_size}")
-        print(f"Накопление градиентов: {training_args.gradient_accumulation_steps}")
-        print(f"Эффективный размер батча: {training_args.per_device_train_batch_size * training_args.gradient_accumulation_steps}")
-        print(f"Путь для чекпоинтов: {training_args.output_dir}")
-        print(f"Путь для логов: {training_args.logging_dir}")
-        print("========================\n")
-        
-        self.writer.add_text("model_config", str(self.model.config))
-        self.writer.add_text("training_config", str(training_args))
-        
-        # Запускаем обучение
-        print("Starting training...")
-        trainer.train()
-        
-        # Сохраняем финальные метрики только если был eval_dataset
-        if eval_dataset is not None:
-            final_metrics = trainer.evaluate()
-            print("\n=== Финальные метрики ===")
-            for metric_name, value in final_metrics.items():
-                print(f"{metric_name}: {value:.4f}")
-                self.writer.add_scalar(f"final/{metric_name}", value)
-            print("======================\n")
-        
-        # Сохранение модели
-        print("\n=== Сохранение модели ===")
-        if self.cfg.peft.peft.enabled:
-            save_path = os.path.join(self.cfg.paths.adapters_dir, f"{self.cfg.peft.peft.method}_adapter")
-            print(f"Сохранение адаптера в {save_path}")
-            trainer.model.save_pretrained(save_path)
-        else:
-            save_path = os.path.join(self.cfg.paths.checkpoints_dir, "full_model")
-            print(f"Сохранение полной модели в {save_path}")
-            trainer.model.save_pretrained(save_path)
-        
-        print(f"Сохранение токенизатора в {self.cfg.paths.tokenizer_dir}")
-        self.tokenizer.save_pretrained(self.cfg.paths.tokenizer_dir)
-        print("========================\n")
-        
-        # Закрываем TensorBoard writer
-        self.writer.close()
-        
-        if self.cfg.logging.wandb.enabled and wandb is not None:
-            wandb.finish()
-        
-        print("\n=== Обучение завершено ===")
-        print(f"Общее время обучения: {(time.time() - self.start_time)/60:.2f}мин")
-        print("========================\n")
-    
-    def save_model(self, path: str):
-        """Сохранение модели."""
-        if self.cfg.peft.peft.enabled:
-            self.model.save_pretrained(os.path.join(path, f"{self.cfg.peft.peft.method}_adapter"))
-        else:
-            self.model.save_pretrained(os.path.join(path, "full_model"))
-        self.tokenizer.save_pretrained(path)
-    
-    @classmethod
-    def load_model(
-        cls,
-        path: str,
-        cfg: DictConfig
-    ) -> "SecurityModelTrainer":
-        """Загрузка сохраненной модели."""
-        trainer = cls(cfg.model.model.name, path, cfg)
-        
-        if cfg.peft.peft.enabled:
-            trainer.model = PeftModel.from_pretrained(
-                trainer.model,
-                os.path.join(path, f"{cfg.peft.peft.method}_adapter")
-            )
-        else:
-            trainer.model = AutoModelForCausalLM.from_pretrained(
-                os.path.join(path, "full_model"),
-                torch_dtype=getattr(torch, cfg.model.model.torch_dtype),
-                device_map=cfg.model.model.device_map
-            )
-        
-        trainer.tokenizer = AutoTokenizer.from_pretrained(path)
-        return trainer
+from training.dataset import SecurityDataset
+from training.trainer import SecurityModelTrainer
+from training.utils import update_paths_with_run_id
 
 @hydra.main(version_base=None, config_path="../configs", config_name="base")
 def main(cfg: DictConfig):
     # Загружаем конфигурацию
     print("Loading configuration...")
+
+    # Генерируем Run ID и динамически обновляем пути
+    run_id = update_paths_with_run_id(cfg)
+    print(f"Generated Run ID: {run_id}")
     print(OmegaConf.to_yaml(cfg))
-    
+
     # Проверяем и создаем все необходимые директории
     required_dirs = [
         cfg.paths.models_dir,
@@ -410,7 +63,7 @@ def main(cfg: DictConfig):
         cfg.paths.evaluation_dir,
         cfg.paths.dataset_dir
     ]
-    
+
     print("\nChecking and creating directories...")
     for dir_path in required_dirs:
         path = Path(dir_path)
@@ -419,54 +72,54 @@ def main(cfg: DictConfig):
             path.mkdir(parents=True, exist_ok=True)
         else:
             print(f"Directory exists: {path}")
-    
+
     # Загружаем датасет
     print("\nLoading dataset...")
     dataset_path = Path(cfg.paths.dataset_dir)
-    
+
     print(f"Looking for dataset files in: {dataset_path}")
-    
+
     train_file = dataset_path / "train.json"
     eval_file = dataset_path / "eval.json"
-    
+
     if not train_file.exists():
         raise FileNotFoundError(f"Training dataset file not found at {train_file}")
     if not eval_file.exists():
         raise FileNotFoundError(f"Evaluation dataset file not found at {eval_file}")
-    
+
     with open(train_file, "r", encoding="utf-8") as f:
         train_examples = json.load(f)
     with open(eval_file, "r", encoding="utf-8") as f:
         eval_examples = json.load(f)
-    
+
     print(f"Loaded {len(train_examples)} training examples and {len(eval_examples)} evaluation examples")
-    
+
     # Создаем датасеты
     print("Creating datasets...")
     tokenizer = AutoTokenizer.from_pretrained(cfg.model.model.name)
     tokenizer.pad_token = tokenizer.eos_token
-    
+
     train_dataset = SecurityDataset(train_examples, tokenizer, cfg.model.model.training.max_length)
     eval_dataset = SecurityDataset(eval_examples, tokenizer, cfg.model.model.training.max_length)
-    
+
     # Создаем DatasetDict
     datasets = DatasetDict({
         "train": train_dataset,
         "validation": eval_dataset
     })
-    
+
     # Инициализируем тренер
     trainer = SecurityModelTrainer(
         model_name=cfg.model.model.name,
         output_dir=cfg.paths.checkpoints_dir,
         cfg=cfg
     )
-    
+
     # Запускаем обучение
     print("Starting training...")
     trainer.train(datasets)
-    
+
     print("Training completed!")
 
 if __name__ == "__main__":
-    main() 
+    main()

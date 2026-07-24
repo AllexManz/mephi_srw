@@ -1,0 +1,19 @@
+defaults:
+  - base
+
+# Phi-3-mini model configuration (3.8B parameters, highly capable)
+model:
+  id: phi3
+  name: microsoft/Phi-3-mini-4k-instruct
+  torch_dtype: bfloat16
+  device_map: auto
+  trust_remote_code: false
+  use_cache: false
+  load_in_8bit: false
+  load_in_4bit: false
+  # Model-specific training settings
+  training:
+    per_device_train_batch_size: 1
+    per_device_eval_batch_size: 2
+    gradient_accumulation_steps: 8
+    learning_rate: 1e-4

@@ -53,6 +53,14 @@ logs/training/*
 !logs/tensorboard/.gitkeep
 !logs/training/.gitkeep
 
+# Ignore generated metrics, evaluation files, and comparison results
+logs/**/*.json
+logs/**/*.md
+models/**/*.json
+models/**/merges.txt
+models/**/README.md
+models/**/*.jinja
+
 # Cache and temporary files
 .cache/
 *.log
@@ -60,4 +68,6 @@ logs/training/*
 *.bin
 *.ckpt
 *.pth
-*.safetensors 
+*.safetensors
+*.tfevents.*
+events.out.tfevents.*

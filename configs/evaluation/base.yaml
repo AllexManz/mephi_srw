@@ -7,28 +7,34 @@ evaluation:
   top_p: 0.9
   top_k: 50
   repetition_penalty: 1.2
-  
+
   # Metrics to compute
   metrics:
     - perplexity
     - accuracy
     - bleu
     - rouge
-  
+
   # Output settings
   output:
     save_dir: ${paths.evaluation_dir}
     save_predictions: true
     save_metrics: true
-    
+
   # Generation settings
   generation:
     max_new_tokens: 256
     do_sample: true
     num_return_sequences: 1
-    
+    max_examples: 10
+
+  # Benchmark settings
+  benchmark:
+    num_examples: 500  # Can be 500 or 1500
+    dataset_type: "external"  # Always external as requested
+
   # Batch settings
   batch:
     size: 8
     num_workers: 4
-    pin_memory: true 
+    pin_memory: true

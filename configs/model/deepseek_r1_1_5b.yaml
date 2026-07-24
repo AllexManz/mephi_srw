@@ -1,0 +1,20 @@
+defaults:
+  - base
+
+# DeepSeek-R1-Distill-Qwen-1.5B model configuration (released early 2025, highly relevant reasoning model in 2026)
+model:
+  id: deepseek_r1_1_5b
+  name: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
+  torch_dtype: bfloat16
+  device_map: auto
+  trust_remote_code: false
+  use_cache: false
+  load_in_8bit: false
+  load_in_4bit: false
+  # Model-specific training settings
+  training:
+    per_device_train_batch_size: 16
+    per_device_eval_batch_size: 16
+    gradient_accumulation_steps: 4
+    learning_rate: 1e-4
+    max_length: 512

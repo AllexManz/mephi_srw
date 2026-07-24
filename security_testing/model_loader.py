@@ -57,7 +57,9 @@ def load_model_and_tokenizer_from_security_config(device_map: str | None = "auto
 
     torch_dtype_str = cfg.get("torch_dtype", "float16")
     torch_dtype = getattr(torch, torch_dtype_str)
-    trust_remote_code = cfg.get("trust_remote_code", True)
+    # Loading arbitrary Python from a model repository is equivalent to
+    # executing third-party code. Opt in explicitly in model_config.yaml.
+    trust_remote_code = cfg.get("trust_remote_code", False)
 
     quantization_config = None
     qconf = cfg.get("qlora", {}).get("quantization", {})
@@ -82,6 +84,5 @@ def load_model_and_tokenizer_from_security_config(device_map: str | None = "auto
 
     model.eval()
     return model, tokenizer, cfg
-
 
 
