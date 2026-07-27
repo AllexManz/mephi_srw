@@ -1,6 +1,7 @@
 # Base model configuration
 model:
   id: base
+  pretrained_path: null
   # Common model settings
   torch_dtype: float32
   device_map: auto

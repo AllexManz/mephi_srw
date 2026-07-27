@@ -1,0 +1,14 @@
+defaults:
+  - /base
+
+experiment:
+  name: security-llm
+  models:
+    - gpt2
+  pretrain_method: lora
+  rl_method: gspo
+  benchmark_limit: 30
+  max_steps: -1
+
+# This file documents the supported experiment contract. The executable
+# runner also exposes the same values as CLI flags for Airflow and notebooks.

@@ -51,9 +51,11 @@ def setup_model_for_training(
             load_in_8bit=True
         )
 
+    model_source = cfg.model.model.get("pretrained_path") or model_name
+
     # Загрузка модели
     model = AutoModelForCausalLM.from_pretrained(
-        model_name,
+        model_source,
         torch_dtype=getattr(torch, cfg.model.model.torch_dtype),
         device_map=device_map,
         trust_remote_code=cfg.model.model.trust_remote_code,
@@ -101,11 +103,13 @@ def update_paths_with_run_id(cfg) -> str:
     # Получаем суффикс PEFT
     peft_suffix = f"_{cfg.peft.peft.method}" if cfg.peft.peft.enabled else "_full"
 
-    # Форматируем временную метку
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # Генерируем Run ID
-    run_id = f"{model_id}_{train_method}{peft_suffix}_{timestamp}"
+    configured_run_id = cfg.paths.get("run_id")
+    if configured_run_id:
+        run_id = str(configured_run_id)
+    else:
+        # Форматируем временную метку
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_id = f"{model_id}_{train_method}{peft_suffix}_{timestamp}"
 
     # Базовая директория
     base_dir = cfg.paths.base_dir

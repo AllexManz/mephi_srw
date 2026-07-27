@@ -12,8 +12,9 @@ def create_reference_model(model_name: str, cfg: Any) -> AutoModelForCausalLM:
     """Create a frozen reference model for KL regularization."""
     fsdp_enabled = cfg.training.training.get("fsdp", {}).get("enabled", False)
     device_map = None if fsdp_enabled else cfg.model.model.device_map
+    model_source = cfg.model.model.get("pretrained_path") or model_name
     model = AutoModelForCausalLM.from_pretrained(
-        model_name,
+        model_source,
         torch_dtype=getattr(torch, cfg.model.model.torch_dtype),
         device_map=device_map,
         trust_remote_code=cfg.model.model.trust_remote_code
@@ -87,4 +88,3 @@ class PolicyOptimTrainer(Trainer):
 
         total_loss = loss + kl_coef * kl_term
         return (total_loss, outputs) if return_outputs else total_loss
-

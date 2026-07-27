@@ -34,7 +34,12 @@ from omegaconf import DictConfig, OmegaConf
 from torch.utils.tensorboard import SummaryWriter
 
 from .dataset import SecurityDataset
-from .callbacks import PerplexityCallback, DetailedLoggingCallback, TensorBoardCallback
+from .callbacks import (
+    PerplexityCallback,
+    DetailedLoggingCallback,
+    TensorBoardCallback,
+    MLflowCallback,
+)
 from .utils import setup_model_for_training, setup_tokenizer, ensure_output_dir
 from .policy import PolicyOptimTrainer, create_reference_model
 
@@ -52,14 +57,27 @@ class SecurityModelTrainer:
         self.cfg = cfg
 
         # Инициализация токенизатора
-        self.tokenizer = setup_tokenizer(model_name)
+        model_source = self.cfg.model.model.get("pretrained_path") or model_name
+        self.tokenizer = setup_tokenizer(model_source)
 
         # Инициализация модели
         self.model = setup_model_for_training(model_name, cfg)
 
         # Настройка PEFT если требуется
         if self.cfg.peft.peft.enabled:
-            self.model = self._setup_peft()
+            init_adapter_path = self.cfg.peft.peft.get("init_adapter_path")
+            if init_adapter_path:
+                if not Path(init_adapter_path).exists():
+                    raise FileNotFoundError(
+                        f"Initial PEFT adapter not found: {init_adapter_path}"
+                    )
+                self.model = PeftModel.from_pretrained(
+                    self.model,
+                    init_adapter_path,
+                    is_trainable=True,
+                )
+            else:
+                self.model = self._setup_peft()
             if self.cfg.training.training.optimization.gradient_checkpointing:
                 self.model.enable_input_require_grads()
 
@@ -82,10 +100,18 @@ class SecurityModelTrainer:
                         has_valid_module = True
                         break
                 if not has_valid_module:
-                    print(f"Warning: None of the target modules {target_modules} were found in the model. Falling back to automatic target module detection.")
+                    print(f"Warning: None of the target modules {target_modules} were found in the model. Detecting architecture-specific modules.")
                     target_modules = None
             else:
                 target_modules = None  # PEFT will automatically detect target modules (e.g. all linear layers)
+
+            if target_modules is None:
+                module_names = {name for name, _ in self.model.named_modules()}
+                candidates = []
+                for suffix in ("q_proj", "k_proj", "v_proj", "o_proj", "c_attn", "c_proj"):
+                    if any(name.endswith(suffix) for name in module_names):
+                        candidates.append(suffix)
+                target_modules = candidates or None
 
             config = LoraConfig(
                 r=self.cfg.peft.peft.lora.r,
@@ -98,11 +124,14 @@ class SecurityModelTrainer:
                 inference_mode=False
             )
 
-        elif method == "prefix_tuning":
+        elif method in ("prefix_tuning", "p_tuning"):
+            hidden_size = getattr(self.model.config, "hidden_size", None)
+            hidden_size = hidden_size or getattr(self.model.config, "n_embd", 768)
+            prefix_cfg = self.cfg.peft.peft.prefix_tuning
             config = PrefixTuningConfig(
-                num_virtual_tokens=self.cfg.peft.peft.prefix_tuning.num_virtual_tokens,
-                encoder_hidden_size=self.cfg.peft.peft.prefix_tuning.encoder_hidden_size,
-                prefix_projection=self.cfg.peft.peft.prefix_tuning.prefix_projection,
+                num_virtual_tokens=prefix_cfg.num_virtual_tokens,
+                encoder_hidden_size=prefix_cfg.get("encoder_hidden_size") or hidden_size,
+                prefix_projection=prefix_cfg.get("prefix_projection", True),
                 task_type=TaskType.CAUSAL_LM
             )
 
@@ -110,7 +139,11 @@ class SecurityModelTrainer:
             config = PromptTuningConfig(
                 num_virtual_tokens=self.cfg.peft.peft.prompt_tuning.num_virtual_tokens,
                 prompt_tuning_init=self.cfg.peft.peft.prompt_tuning.prompt_tuning_init,
-                token_dim=self.cfg.peft.peft.prompt_tuning.token_dim,
+                token_dim=(
+                    self.cfg.peft.peft.prompt_tuning.get("token_dim")
+                    or getattr(self.model.config, "hidden_size", None)
+                    or getattr(self.model.config, "n_embd", 768)
+                ),
                 prompt_tuning_init_text=self.cfg.peft.peft.prompt_tuning.prompt_tuning_init_text,
                 task_type=TaskType.CAUSAL_LM
             )
@@ -118,7 +151,7 @@ class SecurityModelTrainer:
         else:
             raise ValueError(
                 f"Unknown PEFT method: {method}. "
-                "Supported methods are: lora, qlora, prefix_tuning, prompt_tuning"
+                "Supported methods are: lora, qlora, prefix_tuning, p_tuning, prompt_tuning"
             )
 
         model = get_peft_model(self.model, config)
@@ -184,8 +217,8 @@ class SecurityModelTrainer:
 
             # Настройки логирования
             logging_dir=self.cfg.paths.training_logs_dir,
-            logging_steps=self.cfg.logging.logging.logging_steps,
-            logging_first_step=self.cfg.logging.logging.logging_first_step,
+            logging_steps=self.cfg.logging.logging_steps,
+            logging_first_step=self.cfg.logging.logging_first_step,
             report_to=report_to,
 
             # Настройки оценки
@@ -248,6 +281,8 @@ class SecurityModelTrainer:
             DetailedLoggingCallback(),
             TensorBoardCallback(self.writer)
         ]
+        if self.cfg.logging.mlflow.enabled:
+            callbacks.append(MLflowCallback())
 
         # Если eval_dataset не передан, отключаем оценку
         if eval_dataset is None:

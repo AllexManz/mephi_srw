@@ -63,6 +63,7 @@ models/**/*.jinja
 
 # Cache and temporary files
 .cache/
+mlruns/
 *.log
 *.pt
 *.bin

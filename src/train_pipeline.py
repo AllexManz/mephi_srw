@@ -29,6 +29,7 @@ from evaluation.evaluator import SecurityModelEvaluator
 from training.dataset import SecurityDataset
 from training.trainer import SecurityModelTrainer
 from training.utils import update_paths_with_run_id
+from training.mlflow_logging import is_active as mlflow_active
 
 
 def _get_git_sha() -> Optional[str]:
@@ -43,7 +44,7 @@ def _get_git_sha() -> Optional[str]:
 
 def _log_text_artifact(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
-    if mlflow:
+    if mlflow_active():
         mlflow.log_artifact(str(path))
 
 
@@ -150,13 +151,13 @@ def _save_dataset(examples: List[Dict[str, Any]], cfg: DictConfig) -> None:
     with open(output_dir / "eval.json", "w", encoding="utf-8") as f:
         json.dump(eval_examples, f, ensure_ascii=False, indent=2)
 
-    if mlflow:
+    if mlflow_active():
         mlflow.log_artifact(str(output_dir / "train.json"))
         mlflow.log_artifact(str(output_dir / "eval.json"))
 
 
 def _log_config_artifacts(cfg: DictConfig) -> None:
-    if not mlflow:
+    if not mlflow_active():
         return
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
@@ -197,7 +198,7 @@ def _stage_train(cfg: DictConfig, peft_cfg_name: str, training_method: str, adap
     trainer.train(datasets)
 
     adapter_path = os.path.join(adapters_dir, f"{stage_cfg.peft.peft.method}_adapter")
-    if mlflow and Path(adapter_path).exists():
+    if mlflow_active() and Path(adapter_path).exists():
         mlflow.log_artifact(adapter_path)
     return adapter_path
 
@@ -230,7 +231,7 @@ def _stage_gspo(cfg: DictConfig, peft_cfg_name: str, adapters_dir: str, adapter_
     trainer.train(datasets)
 
     gspo_adapter = os.path.join(adapters_dir, f"{stage_cfg.peft.peft.method}_adapter")
-    if mlflow and Path(gspo_adapter).exists():
+    if mlflow_active() and Path(gspo_adapter).exists():
         mlflow.log_artifact(gspo_adapter)
 
 
@@ -272,7 +273,7 @@ def _evaluate(cfg: DictConfig, adapter_path: str) -> Dict[str, Any]:
     metrics.update(evaluator.evaluate_security_metrics(eval_examples, responses))
     evaluator.save_metrics(metrics)
     evaluator.close()
-    if mlflow:
+    if mlflow_active():
         metrics_path = Path(cfg.paths.evaluation_dir) / "evaluation_metrics.json"
         if metrics_path.exists():
             mlflow.log_artifact(str(metrics_path))
@@ -299,7 +300,7 @@ def main(cfg: DictConfig) -> None:
         examples = _process_events(events)
         _save_dataset(examples, cfg)
 
-        if mlflow and run:
+        if mlflow_active() and run:
             mlflow.log_param("siem_events", len(events))
             mlflow.log_param("stage1_peft", cfg.pipeline.stage1.peft_config)
             mlflow.log_param("stage2_peft", cfg.pipeline.stage2.peft_config)
@@ -326,12 +327,12 @@ def main(cfg: DictConfig) -> None:
             f"{eval_cfg.peft.peft.method}_adapter"
         )
         metrics = _evaluate(eval_cfg, stage2_adapter_path)
-        if mlflow and run:
+        if mlflow_active() and run:
             for key, value in metrics.items():
                 if value is not None:
                     mlflow.log_metric(key, float(value))
     finally:
-        if mlflow and run:
+        if mlflow_active() and run:
             mlflow.end_run()
 
 

@@ -12,7 +12,7 @@ services:
       - minio_data:/data
 
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.12.1
+    image: ghcr.io/mlflow/mlflow:v2.19.0
     depends_on:
       - minio
     environment:

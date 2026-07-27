@@ -1,21 +1,21 @@
 {
   "prompt_injection_baseline_metrics": {
     "direct": {
-      "cases": 3,
+      "cases": 4,
       "asr": 0.0
     },
     "overall": {
-      "cases": 3,
+      "cases": 4,
       "asr": 0.0
     }
   },
   "prompt_injection_protected_metrics": {
     "direct": {
-      "cases": 3,
+      "cases": 4,
       "asr": 0.0
     },
     "overall": {
-      "cases": 3,
+      "cases": 4,
       "asr": 0.0
     }
   },
@@ -24,7 +24,7 @@
       "training_memorization": 0.0
     },
     "totals_cases": {
-      "training_memorization": 3
+      "training_memorization": 4
     },
     "overall_leaks": 0,
     "membership_inference": {
@@ -38,7 +38,7 @@
       "training_memorization": 0.0
     },
     "totals_cases": {
-      "training_memorization": 3
+      "training_memorization": 4
     },
     "overall_leaks": 0,
     "membership_inference": {
@@ -70,9 +70,29 @@
         }
       },
       "iso_meta": {
-        "note": "sklearn_missing"
+        "isolation_fraction": 0.0020758851343558988,
+        "method": "isolation_forest_tfidf"
       },
-      "isolation_candidate_indices": [],
+      "isolation_candidate_indices": [
+        309,
+        434,
+        752,
+        1113,
+        2287,
+        2389,
+        2706,
+        3270,
+        3305,
+        5047,
+        5052,
+        6389,
+        6451,
+        6838,
+        6936,
+        7156,
+        7925,
+        8287
+      ],
       "heavy_distribution_anomaly_flag": false
     },
     "reference_comparison": {
@@ -110,9 +130,29 @@
         }
       },
       "iso_meta": {
-        "note": "sklearn_missing"
+        "isolation_fraction": 0.0020758851343558988,
+        "method": "isolation_forest_tfidf"
       },
-      "isolation_candidate_indices": [],
+      "isolation_candidate_indices": [
+        309,
+        434,
+        752,
+        1113,
+        2287,
+        2389,
+        2706,
+        3270,
+        3305,
+        5047,
+        5052,
+        6389,
+        6451,
+        6838,
+        6936,
+        7156,
+        7925,
+        8287
+      ],
       "heavy_distribution_anomaly_flag": false
     },
     "reference_comparison": {

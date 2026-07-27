@@ -72,7 +72,8 @@ class TestModelBaselines(unittest.TestCase):
             "model.model.training.per_device_eval_batch_size=1",
             "model.model.training.gradient_accumulation_steps=1",
             "logging.tensorboard.enabled=false",
-            "logging.wandb.enabled=false"
+            "logging.wandb.enabled=false",
+            "logging.mlflow.enabled=false"
         ]
         
         print(f"\nRunning SFT LoRA training for model: {model_id}...")

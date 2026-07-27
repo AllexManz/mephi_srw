@@ -1,0 +1,15 @@
+# P-tuning v2 compatible prefix-parameter tuning configuration.
+# The implementation uses PEFT's PrefixTuningConfig with model-derived
+# hidden dimensions, so the same config works across the supported models.
+peft:
+  enabled: true
+  method: p_tuning
+  adapter_path: null
+  init_adapter_path: null
+  common:
+    task_type: CAUSAL_LM
+    inference_mode: false
+  prefix_tuning:
+    num_virtual_tokens: 20
+    encoder_hidden_size: null
+    prefix_projection: true

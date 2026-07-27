@@ -1,19 +1,23 @@
-# Base logging configuration
-logging:
-  # General logging settings
-  logging_steps: 10
-  logging_first_step: true
-  report_to:
-    - tensorboard
-    - wandb
-  
-  # TensorBoard settings
-  tensorboard:
-    enabled: true
-    log_dir: ${paths.tensorboard_dir}
-  
-  # Weights & Biases settings
-  wandb:
-    enabled: false
-    project: security-llm
-    name: ${now:%Y-%m-%d_%H-%M-%S} 
+# Base logging configuration. This file is loaded as the `logging` Hydra
+# config group, so its keys must live at the file root.
+logging_steps: 10
+logging_first_step: true
+report_to:
+  - tensorboard
+  - wandb
+
+tensorboard:
+  enabled: true
+  log_dir: ${paths.tensorboard_dir}
+
+wandb:
+  enabled: false
+  project: security-llm
+  name: ${now:%Y-%m-%d_%H-%M-%S}
+
+# MLflow receives Trainer metrics and the final model artifacts.
+mlflow:
+  enabled: true
+  tracking_uri: file:./mlruns
+  experiment_name: security-llm-finetuning
+  run_name: ${now:%Y-%m-%d_%H-%M-%S}

@@ -8,6 +8,9 @@
 - `src/training/` — датасет, Trainer, PEFT и policy-optimization;
 - `src/evaluation/` — perplexity, accuracy, security-метрики и внешние benchmark-ы;
 - `security_testing/` — генераторы атак, защиты, mock smoke-тесты и отчёты;
+- `airflow/dags/` — DAG с кубиками prepare → baseline → pretrain → RL → evaluation;
+- `notebooks/` — просмотр данных, генераций и сравнение стадий;
+- `docs/` — отдельная документация моделей, данных, pretrain, RL, benchmark-ов, Airflow и MLflow;
 - `configs/` — Hydra-конфигурации моделей, обучения, PEFT, датасетов и логирования;
 - `data/processed/` — локальные train/eval-данные;
 - `models/`, `logs/`, `outputs/` — результаты запусков (большие артефакты не предназначены для git).
@@ -46,6 +49,25 @@ python src/data/prepare_dataset.py dataset=small
 
 ## Обучение и оценка
 
+Полный experiment pipeline для нескольких моделей:
+
+```bash
+python src/run_experiment.py \
+  --experiment security-llm \
+  --models gpt2,qwen2_5 \
+  --pretrain-method lora \
+  --rl-method gspo \
+  --benchmark-limit 30
+```
+
+Для проверки команд без загрузки моделей:
+
+```bash
+python src/run_experiment.py --models gpt2 --dry-run
+```
+
+Полный контракт и stage artifacts описаны в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/PRETRAIN.md](docs/PRETRAIN.md) и [docs/RL.md](docs/RL.md).
+
 Примеры:
 
 ```bash
@@ -78,6 +100,26 @@ tensorboard --logdir logs
 ```
 
 ## SIEM и MLflow
+
+Обычный finetuning через `src/train.py` автоматически создаёт MLflow run, записывает параметры конфигурации, train/eval metrics на каждом шаге и итоговый adapter/checkpoint как artifact. Включение находится в `configs/logging/base.yaml`.
+
+Локальный MLflow UI:
+
+```bash
+python -m pip install -r requirements.txt
+mlflow ui --backend-store-uri ./mlruns --host 127.0.0.1 --port 5000
+```
+
+В отдельном терминале запустите обучение:
+
+```bash
+MLFLOW_TRACKING_URI=file:./mlruns \
+python src/train.py model=gpt2 peft=lora
+```
+
+Откройте `http://127.0.0.1:5000`, выберите experiment `security-llm-finetuning` и нужный run. Для удалённого MLflow достаточно заменить `MLFLOW_TRACKING_URI`, например на `http://localhost:5000`.
+
+Расширенная локальная инструкция: [docs/MLFLOW.md](docs/MLFLOW.md).
 
 Простой SIEM-запуск:
 

@@ -10,6 +10,7 @@ training:
   lr_scheduler_type: cosine
   weight_decay: 0.01
   warmup_steps: 100
+  max_steps: -1
 
   # Optimization settings
   optimization:

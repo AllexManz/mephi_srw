@@ -3,6 +3,7 @@ Callbacks for model training.
 """
 
 import math
+from .mlflow_logging import log_metrics
 import time
 from transformers import TrainerCallback
 from torch.utils.tensorboard import SummaryWriter
@@ -76,11 +77,17 @@ class TensorBoardCallback(TrainerCallback):
                     self.writer.add_scalar(f"train/{key}", value, state.global_step)
             self.writer.flush()
 
-    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
-        if metrics is not None:
-            for key, value in metrics.items():
-                if isinstance(value, (int, float)):
-                    self.writer.add_scalar(f"eval/{key}", value, state.global_step)
-            self.writer.flush()
 
-__all__ = ['PerplexityCallback', 'DetailedLoggingCallback', 'TensorBoardCallback']
+class MLflowCallback(TrainerCallback):
+    """Forward Hugging Face Trainer scalar logs to the active MLflow run."""
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if logs:
+            log_metrics(logs, step=state.global_step)
+
+__all__ = [
+    'PerplexityCallback',
+    'DetailedLoggingCallback',
+    'TensorBoardCallback',
+    'MLflowCallback',
+]

@@ -11,6 +11,7 @@ defaults:
 # Paths configuration
 paths:
   base_dir: .  # Use current directory as base
+  run_id: null
   models_dir: ${paths.base_dir}/models/${model.model.id}
   checkpoints_dir: ${paths.models_dir}/checkpoints
   adapters_dir: ${paths.models_dir}/adapters

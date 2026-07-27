@@ -40,6 +40,7 @@ import time  # Добавляем импорт в начало файла
 from training.dataset import SecurityDataset
 from training.trainer import SecurityModelTrainer
 from training.utils import update_paths_with_run_id
+from training.mlflow_logging import start_run, end_run, log_artifacts
 
 @hydra.main(version_base=None, config_path="../configs", config_name="base")
 def main(cfg: DictConfig):
@@ -108,18 +109,30 @@ def main(cfg: DictConfig):
         "validation": eval_dataset
     })
 
-    # Инициализируем тренер
-    trainer = SecurityModelTrainer(
-        model_name=cfg.model.model.name,
-        output_dir=cfg.paths.checkpoints_dir,
-        cfg=cfg
+    mlflow_run = start_run(
+        cfg,
+        run_id,
+        train_examples=len(train_examples),
+        eval_examples=len(eval_examples),
     )
+    try:
+        # Инициализируем тренер
+        trainer = SecurityModelTrainer(
+            model_name=cfg.model.model.name,
+            output_dir=cfg.paths.checkpoints_dir,
+            cfg=cfg
+        )
 
-    # Запускаем обучение
-    print("Starting training...")
-    trainer.train(datasets)
-
-    print("Training completed!")
+        # Запускаем обучение
+        print("Starting training...")
+        trainer.train(datasets)
+        log_artifacts(cfg.paths.checkpoints_dir, "model")
+        print("Training completed!")
+    except Exception:
+        end_run(mlflow_run, status="FAILED")
+        raise
+    else:
+        end_run(mlflow_run, status="FINISHED")
 
 if __name__ == "__main__":
     main()

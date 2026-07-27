@@ -11,7 +11,7 @@ peft:
   # Prefix Tuning specific settings
   prefix_tuning:
     num_virtual_tokens: 20  # Number of virtual tokens to use for prefix
-    encoder_hidden_size: 512  # Hidden size of the prefix encoder
+    encoder_hidden_size: null  # Derived from model.config.hidden_size
     prefix_projection: true  # Whether to use prefix projection
     prefix_projection_hidden_size: 512  # Hidden size for prefix projection if enabled
     prefix_projection_dropout: 0.1  # Dropout rate for prefix projection
