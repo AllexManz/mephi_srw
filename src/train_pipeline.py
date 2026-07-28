@@ -54,7 +54,7 @@ def _init_mlflow(cfg: DictConfig) -> Optional[Any]:
         return None
     if mlflow is None:
         raise ImportError("mlflow is not installed. Add it to requirements.txt.")
-    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", mlflow_cfg.tracking_uri)
+    tracking_uri = mlflow_cfg.tracking_uri
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(mlflow_cfg.experiment_name)
     run = mlflow.start_run(run_name=mlflow_cfg.run_name)

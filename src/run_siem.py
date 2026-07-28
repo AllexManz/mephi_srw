@@ -44,23 +44,22 @@ def main(cfg: DictConfig) -> None:
     )
     args = parser.parse_args()
     
-    # Загружаем модель и токенизатор
-    print(f"Loading model from {cfg.model.model.name}...")
-    model = AutoModelForCausalLM.from_pretrained(
-        cfg.model.model.name,
-        torch_dtype=getattr(torch, cfg.model.model.torch_dtype),
-        device_map=cfg.model.model.device_map,
-        trust_remote_code=cfg.model.model.trust_remote_code
-    )
-    tokenizer = AutoTokenizer.from_pretrained(cfg.model.model.name)
-    
-    # Если используется PEFT, загружаем адаптер
+    # Загружаем либо базовую модель, либо базу с адаптером — ровно один раз.
     if cfg.peft.peft.enabled:
         adapter_path = cfg.peft.peft.adapter_path or f"{cfg.paths.adapters_dir}/{cfg.peft.peft.method}_adapter"
         print(f"Loading PEFT adapter from {adapter_path}...")
         trainer = SecurityModelTrainer.load_model(adapter_path, cfg)
         model = trainer.model
         tokenizer = trainer.tokenizer
+    else:
+        print(f"Loading model from {cfg.model.model.name}...")
+        model = AutoModelForCausalLM.from_pretrained(
+            cfg.model.model.name,
+            torch_dtype=getattr(torch, cfg.model.model.torch_dtype),
+            device_map=cfg.model.model.device_map,
+            trust_remote_code=cfg.model.model.trust_remote_code
+        )
+        tokenizer = AutoTokenizer.from_pretrained(cfg.model.model.name)
     
     # Инициализируем SIEM интеграцию
     siem = SIEMIntegration(model, tokenizer, cfg)
@@ -101,4 +100,4 @@ def main(cfg: DictConfig) -> None:
             )
 
 if __name__ == "__main__":
-    main() 
+    main()

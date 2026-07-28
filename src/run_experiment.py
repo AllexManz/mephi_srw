@@ -15,6 +15,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from runtime_config import load_runtime_config
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -47,12 +49,29 @@ def _train_command(
         f"peft={peft_config}",
         f"paths.run_id={run_id}",
         "logging.mlflow.enabled=true",
+        f"logging.mlflow.tracking_uri={args.tracking_uri}",
+        f"logging.mlflow.experiment_name={args.mlflow_experiment}",
         f"training.training.max_steps={args.max_steps}",
+        f"training.training.data.train_limit={args.train_limit}",
+        f"training.training.data.eval_limit={args.eval_limit}",
+        f"model.model.training.per_device_train_batch_size={args.train_batch_size}",
+        f"model.model.training.per_device_eval_batch_size={args.eval_batch_size}",
+        f"model.model.training.gradient_accumulation_steps={args.gradient_accumulation_steps}",
+        # Campaign stages save one explicit final artifact. Disabling Trainer's
+        # last-step checkpoint avoids duplicating full weights and optimizer
+        # state before that final save.
+        "training.training.save.save_strategy=no",
+        "training.training.evaluation.load_best_model_at_end=false",
     ]
     if init_adapter:
-        command.append(f"peft.peft.init_adapter_path={init_adapter}")
+        # Most PEFT config groups do not declare this transition-only field.
+        # ``++`` makes the override valid both when the field exists (p-tuning)
+        # and when Hydra has to add it (LoRA/QLoRA/prompt tuning).
+        command.append(f"++peft.peft.init_adapter_path={init_adapter}")
     if pretrained_path:
         command.append(f"model.model.pretrained_path={pretrained_path}")
+    if peft_method == "full" and args.full_optimizer:
+        command.append(f"training.training.optimization.optim={args.full_optimizer}")
     if args.no_eval:
         command.append("training.training.evaluation.eval_strategy=no")
     return command
@@ -76,7 +95,12 @@ def _benchmark_command(
         "--stage", stage,
         "--output", str(output),
         "--limit", str(args.benchmark_limit),
-        "--torch-dtype", args.torch_dtype,
+        "--torch-dtype", args.torch_dtype or args.model_dtypes[model_id],
+        "--max-length", str(args.benchmark_max_length),
+        "--max-new-tokens", str(args.max_new_tokens),
+        "--samples", str(args.samples),
+        "--tracking-uri", args.tracking_uri,
+        "--mlflow-experiment", args.benchmark_experiment,
     ]
     if adapter_path:
         command.extend(["--adapter-path", adapter_path, "--base-model", model_name])
@@ -167,6 +191,8 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
 
         if args.phase in ("all", "evaluate"):
             for stage in ("pretrain", "rl"):
+                if args.evaluate_stage != "all" and stage != args.evaluate_stage:
+                    continue
                 entry = model_entry.get(stage)
                 if not entry:
                     continue
@@ -185,33 +211,71 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
                 )
                 entry["benchmark"] = str(output)
 
-        _save_manifest(manifest_path, manifest)
+        if not args.dry_run:
+            _save_manifest(manifest_path, manifest)
     return manifest
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--experiment", default="security-llm")
-    parser.add_argument("--models", default="gpt2")
+    parser.add_argument("--config", default="configs/runtime.yaml")
+    parser.add_argument("--experiment")
+    parser.add_argument("--models")
     parser.add_argument("--phase", choices=["all", "baseline", "pretrain", "rl", "evaluate"], default="all")
-    parser.add_argument("--pretrain-method", choices=["lora", "qlora", "prompt_tuning", "p_tuning", "full"], default="lora")
-    parser.add_argument("--rl-method", choices=["gspo", "grpo", "none"], default="gspo")
-    parser.add_argument("--max-steps", type=int, default=-1)
-    parser.add_argument("--benchmark-limit", type=int, default=30)
-    parser.add_argument("--torch-dtype", default="float32")
+    parser.add_argument(
+        "--evaluate-stage",
+        choices=["all", "pretrain", "rl"],
+        default="all",
+        help="Limit phase=evaluate to one manifest stage.",
+    )
+    parser.add_argument("--pretrain-method", choices=["lora", "qlora", "prompt_tuning", "p_tuning", "full"])
+    parser.add_argument("--rl-method", choices=["gspo", "grpo", "none"])
+    parser.add_argument("--max-steps", type=int)
+    parser.add_argument("--train-limit", type=int)
+    parser.add_argument("--eval-limit", type=int)
+    parser.add_argument("--train-batch-size", type=int)
+    parser.add_argument("--eval-batch-size", type=int)
+    parser.add_argument("--gradient-accumulation-steps", type=int)
+    parser.add_argument("--benchmark-limit", type=int)
+    parser.add_argument("--benchmark-max-length", type=int)
+    parser.add_argument("--max-new-tokens", type=int)
+    parser.add_argument("--samples", type=int)
+    parser.add_argument("--torch-dtype")
     parser.add_argument("--no-eval", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     ns = parser.parse_args()
-    ns.models = [item.strip() for item in ns.models.split(",") if item.strip()]
-    ns.model_names = {
-        "gpt2": "gpt2",
-        "mistral": "mistralai/Mistral-7B-v0.1",
-        "qwen2": "Qwen/Qwen2-1.5B-Instruct",
-        "qwen2_5": "Qwen/Qwen2.5-1.5B-Instruct",
-        "phi3": "microsoft/Phi-3-mini-4k-instruct",
-        "gemma2": "google/gemma-2-2b-it",
-        "llama3_2": "meta-llama/Llama-3.2-3B-Instruct",
-        "deepseek_r1_1_5b": "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+    runtime = load_runtime_config(ns.config)
+    campaign = runtime["campaign"]
+    training = campaign["training"]
+    benchmark = campaign["benchmark"]
+    mlflow = runtime["services"]["mlflow"]
+    selected_models = ns.models.split(",") if ns.models else campaign["models"]
+    ns.models = [item.strip() for item in selected_models if item.strip()]
+    unknown = sorted(set(ns.models) - set(runtime["models"]))
+    if unknown:
+        parser.error("unknown model ids: " + ", ".join(unknown))
+    ns.experiment = ns.experiment or campaign["name"]
+    ns.pretrain_method = ns.pretrain_method or campaign["pretrain_methods"][0]
+    ns.rl_method = ns.rl_method or campaign["rl_methods"][0]
+    ns.max_steps = ns.max_steps if ns.max_steps is not None else training["max_steps"]
+    ns.train_limit = ns.train_limit if ns.train_limit is not None else training["train_limit"]
+    ns.eval_limit = ns.eval_limit if ns.eval_limit is not None else training["eval_limit"]
+    ns.train_batch_size = ns.train_batch_size or training["per_device_train_batch_size"]
+    ns.eval_batch_size = ns.eval_batch_size or training["per_device_eval_batch_size"]
+    ns.gradient_accumulation_steps = (
+        ns.gradient_accumulation_steps or training["gradient_accumulation_steps"]
+    )
+    ns.full_optimizer = training.get("full_optimizer")
+    ns.benchmark_limit = ns.benchmark_limit or benchmark["limit"]
+    ns.benchmark_max_length = ns.benchmark_max_length or benchmark["max_length"]
+    ns.max_new_tokens = ns.max_new_tokens or benchmark["max_new_tokens"]
+    ns.samples = ns.samples or benchmark["samples_in_report"]
+    ns.tracking_uri = mlflow["tracking_uri"]
+    ns.mlflow_experiment = mlflow["experiment_name"]
+    ns.benchmark_experiment = mlflow["benchmark_experiment_name"]
+    ns.model_names = {key: value["name"] for key, value in runtime["models"].items()}
+    ns.model_dtypes = {
+        key: value["torch_dtype"] for key, value in runtime["models"].items()
     }
     result = run(ns)
     print(json.dumps(result, ensure_ascii=False, indent=2))

@@ -1,0 +1,101 @@
+version: 1
+
+# Единственная пользовательская точка настройки сервисов и experiment campaign.
+# Все относительные пути разрешаются от корня репозитория.
+project:
+  root: .
+  bootstrap_python: python3
+  python: .runtime/training-venv/bin/python
+  mlflow_python: .runtime/mlflow-venv/bin/python
+  airflow_python: .runtime/airflow-venv/bin/python
+  runtime_dir: .runtime
+
+services:
+  mlflow:
+    enabled: true
+    host: 127.0.0.1
+    port: 5000
+    tracking_uri: http://127.0.0.1:5000
+    backend_store: .runtime/mlflow/mlflow.db
+    artifact_root: .runtime/mlflow/artifacts
+    experiment_name: security-llm-finetuning
+    benchmark_experiment_name: security-llm-benchmarks
+  airflow:
+    enabled: true
+    host: 127.0.0.1
+    port: 8080
+    home: .runtime/airflow
+    dags_folder: airflow/dags
+    load_examples: false
+  tensorboard:
+    enabled: true
+    host: 127.0.0.1
+    port: 6006
+    log_dir: logs
+
+campaign:
+  name: security-llm-pilot
+  hardware:
+    accelerator: NVIDIA A100-PCIE-40GB (40 GiB)
+    kernel: 5.4.210-39.1.bert2
+  models:
+    - gpt2
+    - mistral
+    - qwen2
+    - qwen2_5
+    - phi3
+    - gemma2
+    - llama3_2
+    - deepseek_r1_1_5b
+  pretrain_methods:
+    - lora
+    - qlora
+    - prompt_tuning
+    - p_tuning
+    - full
+  rl_methods:
+    - grpo
+    - gspo
+  training:
+    # Pilot-профиль подтверждает работоспособность матрицы. Для финального
+    # исследования увеличьте max_steps и limits после оценки бюджета GPU/диска.
+    max_steps: 10
+    train_limit: 256
+    eval_limit: 64
+    per_device_train_batch_size: 1
+    per_device_eval_batch_size: 1
+    gradient_accumulation_steps: 4
+    # 8-bit paged optimizer keeps Phi-3 full fine-tuning within a 40 GiB GPU.
+    full_optimizer: paged_adamw_8bit
+  benchmark:
+    limit: 30
+    max_length: 512
+    max_new_tokens: 64
+    samples_in_report: 5
+  continue_on_error: true
+
+models:
+  gpt2:
+    name: gpt2
+    torch_dtype: float32
+  mistral:
+    name: mistralai/Mistral-7B-v0.1
+    torch_dtype: float16
+  qwen2:
+    name: Qwen/Qwen2-1.5B-Instruct
+    torch_dtype: bfloat16
+  qwen2_5:
+    name: Qwen/Qwen2.5-1.5B-Instruct
+    torch_dtype: bfloat16
+  phi3:
+    name: microsoft/Phi-3-mini-4k-instruct
+    torch_dtype: bfloat16
+  gemma2:
+    name: google/gemma-2-2b-it
+    torch_dtype: bfloat16
+  llama3_2:
+    name: meta-llama/Llama-3.2-3B-Instruct
+    torch_dtype: bfloat16
+  deepseek_r1_1_5b:
+    name: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
+    torch_dtype: bfloat16

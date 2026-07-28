@@ -1,5 +1,7 @@
 # Environment variables
 .env
+.secrets/
+.runtime/
 
 # Hydra
 multirun/
@@ -64,6 +66,7 @@ models/**/*.jinja
 # Cache and temporary files
 .cache/
 mlruns/
+mlartifacts/
 *.log
 *.pt
 *.bin
@@ -72,3 +75,9 @@ mlruns/
 *.safetensors
 *.tfevents.*
 events.out.tfevents.*
+
+# Per-model training outputs (the repository keeps model configuration in
+# configs/model; generated weights/tokenizers live under these nested paths).
+models/*/checkpoints/
+models/*/adapters/
+models/*/tokenizer/

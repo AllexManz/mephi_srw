@@ -1,34 +1,32 @@
 # Airflow
 
-Airflow используется как UI и scheduler для кубиков pipeline. DAG: `airflow/dags/security_llm_pipeline.py`.
-
-Граф:
+Airflow предоставляет UI и scheduler для стадий pipeline. DAG находится в
+`airflow/dags/security_llm_pipeline.py` и при парсинге читает только
+`configs/runtime.yaml`.
 
 ```text
 prepare_data -> baseline_benchmarks -> pretrain -> rl_alignment -> post_training_benchmarks
 ```
 
-Настройки задаются переменными окружения Airflow:
+## Запуск
 
 ```bash
-export SECURITY_LLM_REPO=/home/papkovas/mephi_srw
-export SECURITY_LLM_MODELS=gpt2,qwen2_5
-export SECURITY_LLM_PRETRAIN=lora
-export SECURITY_LLM_RL=gspo
-export SECURITY_LLM_BENCHMARK_LIMIT=30
+python scripts/lab.py bootstrap
+python scripts/lab.py up
+python scripts/lab.py status
 ```
 
-Установка Airflow в отдельное окружение:
+UI по умолчанию: `http://127.0.0.1:8080`. Airflow home, DAG folder, host, port и
+флаг example DAG задаются в секции `services.airflow` runtime-конфига.
+Переменные `SECURITY_LLM_*` больше не поддерживаются.
 
-```bash
-python -m pip install -r requirements-airflow.txt
-export AIRFLOW_HOME=$PWD/.airflow
-airflow db migrate
-airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.local --password change-me
-airflow scheduler
-airflow webserver --port 8080
-```
+Launcher запускает `airflow standalone` в изолированном
+`.runtime/airflow-venv`. Внутренние Airflow bootstrapping variables создаются
+только для дочернего процесса из YAML; пользователь не управляет ими вручную.
+Лог сервиса: `.runtime/services/logs/airflow.log`.
 
-Проектные ML-зависимости должны быть установлены в том же окружении либо доступны через `SECURITY_LLM_PYTHON`. Для первого smoke-прогона используйте `--dry-run` у `src/run_experiment.py`.
-
-Airflow хранит orchestration state, а MLflow — параметры, метрики и artifacts. Это разные ответственности; Airflow не заменяет MLflow.
+DAG вызывает тот же `src/run_experiment.py`, что CLI и notebooks. Airflow
+хранит orchestration state; MLflow хранит параметры, метрики и artifacts.
+Долгая полная сравнительная кампания дополнительно доступна напрямую через
+`python scripts/lab.py all`, поскольку resume-state и обработка частичных
+ошибок там надежнее одного монолитного DAG run.

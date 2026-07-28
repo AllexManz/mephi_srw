@@ -19,6 +19,7 @@ from transformers import (
 from peft import (
     LoraConfig,
     PrefixTuningConfig,
+    PromptEncoderConfig,
     PromptTuningConfig,
     get_peft_model,
     TaskType,
@@ -71,11 +72,29 @@ class SecurityModelTrainer:
                     raise FileNotFoundError(
                         f"Initial PEFT adapter not found: {init_adapter_path}"
                     )
-                self.model = PeftModel.from_pretrained(
-                    self.model,
-                    init_adapter_path,
-                    is_trainable=True,
-                )
+                adapter_config = PeftConfig.from_pretrained(init_adapter_path)
+                if adapter_config.is_prompt_learning:
+                    # PEFT intentionally rejects is_trainable=True for saved
+                    # prompt-learning adapters. Their saved representation is
+                    # the final virtual-token embedding, which can still be
+                    # continued by loading it normally and unfreezing only the
+                    # prompt encoder parameters.
+                    self.model = PeftModel.from_pretrained(
+                        self.model,
+                        init_adapter_path,
+                        is_trainable=False,
+                    )
+                    for parameter in self.model.parameters():
+                        parameter.requires_grad_(False)
+                    for parameter in self.model.prompt_encoder.parameters():
+                        parameter.requires_grad_(True)
+                    self.model.train()
+                else:
+                    self.model = PeftModel.from_pretrained(
+                        self.model,
+                        init_adapter_path,
+                        is_trainable=True,
+                    )
             else:
                 self.model = self._setup_peft()
             if self.cfg.training.training.optimization.gradient_checkpointing:
@@ -124,7 +143,7 @@ class SecurityModelTrainer:
                 inference_mode=False
             )
 
-        elif method in ("prefix_tuning", "p_tuning"):
+        elif method == "prefix_tuning":
             hidden_size = getattr(self.model.config, "hidden_size", None)
             hidden_size = hidden_size or getattr(self.model.config, "n_embd", 768)
             prefix_cfg = self.cfg.peft.peft.prefix_tuning
@@ -135,16 +154,35 @@ class SecurityModelTrainer:
                 task_type=TaskType.CAUSAL_LM
             )
 
+        elif method == "p_tuning":
+            hidden_size = getattr(self.model.config, "hidden_size", None)
+            hidden_size = hidden_size or getattr(self.model.config, "n_embd", 768)
+            prompt_cfg = self.cfg.peft.peft.prompt_encoder
+            config = PromptEncoderConfig(
+                num_virtual_tokens=prompt_cfg.num_virtual_tokens,
+                token_dim=hidden_size,
+                encoder_hidden_size=(
+                    prompt_cfg.get("encoder_hidden_size") or hidden_size
+                ),
+                encoder_num_layers=prompt_cfg.get("encoder_num_layers", 2),
+                encoder_dropout=prompt_cfg.get("encoder_dropout", 0.0),
+                task_type=TaskType.CAUSAL_LM,
+            )
+
         elif method == "prompt_tuning":
+            prompt_cfg = self.cfg.peft.peft.prompt_tuning
             config = PromptTuningConfig(
-                num_virtual_tokens=self.cfg.peft.peft.prompt_tuning.num_virtual_tokens,
-                prompt_tuning_init=self.cfg.peft.peft.prompt_tuning.prompt_tuning_init,
+                num_virtual_tokens=prompt_cfg.num_virtual_tokens,
+                prompt_tuning_init=prompt_cfg.prompt_tuning_init,
                 token_dim=(
-                    self.cfg.peft.peft.prompt_tuning.get("token_dim")
+                    prompt_cfg.get("token_dim")
                     or getattr(self.model.config, "hidden_size", None)
                     or getattr(self.model.config, "n_embd", 768)
                 ),
-                prompt_tuning_init_text=self.cfg.peft.peft.prompt_tuning.prompt_tuning_init_text,
+                prompt_tuning_init_text=prompt_cfg.prompt_tuning_init_text,
+                tokenizer_name_or_path=(
+                    prompt_cfg.get("tokenizer_name") or self.model_name
+                ),
                 task_type=TaskType.CAUSAL_LM
             )
 
@@ -173,6 +211,8 @@ class SecurityModelTrainer:
 
     def _setup_training_args(self) -> TrainingArguments:
         """Настройка параметров обучения."""
+        cuda_available = torch.cuda.is_available()
+        use_bf16 = cuda_available and self.cfg.model.model.torch_dtype == "bfloat16"
         report_to = []
         if self.cfg.logging.tensorboard.enabled:
             report_to.append("tensorboard")
@@ -214,6 +254,7 @@ class SecurityModelTrainer:
             max_grad_norm=self.cfg.training.training.max_grad_norm,
             lr_scheduler_type=self.cfg.training.training.lr_scheduler_type,
             max_steps=self.cfg.training.training.get("max_steps", -1),
+            optim=self.cfg.training.training.optimization.get("optim", "adamw_torch"),
 
             # Настройки логирования
             logging_dir=self.cfg.paths.training_logs_dir,
@@ -234,7 +275,12 @@ class SecurityModelTrainer:
             save_total_limit=self.cfg.training.training.save.save_total_limit,
 
             # Оптимизация
-            fp16=self.cfg.training.training.optimization.fp16 and torch.cuda.is_available(),
+            fp16=(
+                self.cfg.training.training.optimization.fp16
+                and cuda_available
+                and not use_bf16
+            ),
+            bf16=use_bf16,
             gradient_checkpointing=self.cfg.training.training.optimization.gradient_checkpointing,
             dataloader_num_workers=self.cfg.training.training.optimization.dataloader_num_workers,
             dataloader_pin_memory=self.cfg.training.training.optimization.dataloader_pin_memory,
@@ -337,9 +383,11 @@ class SecurityModelTrainer:
         # Сохранение модели
         if self.cfg.peft.peft.enabled:
             trainer.model.save_pretrained(os.path.join(self.output_dir, f"{self.cfg.peft.peft.method}_adapter"))
+            tokenizer_output = self.output_dir
         else:
-            self.model.save_pretrained(os.path.join(self.output_dir, "full_model"))
-        self.tokenizer.save_pretrained(self.output_dir)
+            tokenizer_output = os.path.join(self.output_dir, "full_model")
+            self.model.save_pretrained(tokenizer_output)
+        self.tokenizer.save_pretrained(tokenizer_output)
 
         # Закрываем TensorBoard writer
         self.writer.close()
@@ -351,9 +399,11 @@ class SecurityModelTrainer:
         """Сохранение модели."""
         if self.cfg.peft.peft.enabled:
             self.model.save_pretrained(os.path.join(path, f"{self.cfg.peft.peft.method}_adapter"))
+            tokenizer_output = path
         else:
-            self.model.save_pretrained(os.path.join(path, "full_model"))
-        self.tokenizer.save_pretrained(path)
+            tokenizer_output = os.path.join(path, "full_model")
+            self.model.save_pretrained(tokenizer_output)
+        self.tokenizer.save_pretrained(tokenizer_output)
 
     @classmethod
     def load_model(
@@ -361,20 +411,41 @@ class SecurityModelTrainer:
         path: str,
         cfg: DictConfig
     ) -> "SecurityModelTrainer":
-        """Загрузка сохраненной модели."""
-        trainer = cls(cfg.model.model.name, path, cfg)
-
+        """Load a saved checkpoint for inference without creating a new adapter."""
+        artifact = Path(path)
+        trainer = cls.__new__(cls)
+        trainer.model_name = cfg.model.model.name
+        trainer.output_dir = artifact
+        trainer.cfg = cfg
         if cfg.peft.peft.enabled:
+            nested_adapter = artifact / f"{cfg.peft.peft.method}_adapter"
+            adapter_path = nested_adapter if nested_adapter.is_dir() else artifact
+            if not (adapter_path / "adapter_config.json").exists():
+                raise FileNotFoundError(
+                    f"PEFT adapter_config.json not found under {artifact}"
+                )
+            base_model = setup_model_for_training(cfg.model.model.name, cfg)
             trainer.model = PeftModel.from_pretrained(
-                trainer.model,
-                os.path.join(path, f"{cfg.peft.peft.method}_adapter")
+                base_model,
+                str(adapter_path),
+                is_trainable=False,
             )
+            tokenizer_path = adapter_path.parent
+            if not (tokenizer_path / "tokenizer_config.json").exists():
+                tokenizer_path = Path(cfg.model.model.name)
         else:
+            full_model = artifact / "full_model"
+            model_path = full_model if full_model.is_dir() else artifact
+            if not (model_path / "config.json").exists():
+                raise FileNotFoundError(f"Full model config.json not found under {artifact}")
             trainer.model = AutoModelForCausalLM.from_pretrained(
-                os.path.join(path, "full_model"),
+                str(model_path),
                 torch_dtype=getattr(torch, cfg.model.model.torch_dtype),
                 device_map=cfg.model.model.device_map
             )
+            tokenizer_path = model_path
 
-        trainer.tokenizer = AutoTokenizer.from_pretrained(path)
+        trainer.tokenizer = setup_tokenizer(str(tokenizer_path))
+        trainer.model.eval()
+        trainer.writer = None
         return trainer

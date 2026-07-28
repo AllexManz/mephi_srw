@@ -5,7 +5,20 @@ Policy optimization helpers for GRPO/GSPO-style training.
 from typing import Optional, Dict, Any
 import torch
 import torch.nn.functional as F
-from transformers import Trainer, AutoModelForCausalLM
+from transformers import Trainer, AutoModelForCausalLM, BitsAndBytesConfig
+
+
+def align_next_token_logits(
+    policy_logits: torch.Tensor, reference_logits: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Align virtual-token policies with a reference on original token positions."""
+    common_length = min(policy_logits.shape[-2], reference_logits.shape[-2])
+    if common_length < 2:
+        raise ValueError("Policy/reference sequences must contain at least two tokens")
+    return (
+        policy_logits[:, -common_length:-1, :],
+        reference_logits[:, -common_length:-1, :],
+    )
 
 
 def create_reference_model(model_name: str, cfg: Any) -> AutoModelForCausalLM:
@@ -13,11 +26,26 @@ def create_reference_model(model_name: str, cfg: Any) -> AutoModelForCausalLM:
     fsdp_enabled = cfg.training.training.get("fsdp", {}).get("enabled", False)
     device_map = None if fsdp_enabled else cfg.model.model.device_map
     model_source = cfg.model.model.get("pretrained_path") or model_name
+    policy_cfg = cfg.training.training.get("policy_optimization", {})
+    quantization_config = None
+    if (
+        not cfg.peft.peft.enabled
+        and not fsdp_enabled
+        and torch.cuda.is_available()
+        and policy_cfg.get("full_reference_load_in_4bit", False)
+    ):
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=getattr(torch, cfg.model.model.torch_dtype),
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+        )
     model = AutoModelForCausalLM.from_pretrained(
         model_source,
         torch_dtype=getattr(torch, cfg.model.model.torch_dtype),
         device_map=device_map,
-        trust_remote_code=cfg.model.model.trust_remote_code
+        trust_remote_code=cfg.model.model.trust_remote_code,
+        quantization_config=quantization_config,
     )
     model.eval()
     for param in model.parameters():
@@ -43,7 +71,9 @@ class PolicyOptimTrainer(Trainer):
         if self.ref_model is not None:
             self.ref_model.eval()
 
-    def compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(
+        self, model, inputs, return_outputs=False, num_items_in_batch=None
+    ):
         outputs = model(**inputs)
         loss = outputs.loss
 
@@ -60,15 +90,17 @@ class PolicyOptimTrainer(Trainer):
         with torch.no_grad():
             ref_logits = self.ref_model(**ref_inputs).logits
 
-        # Align logits with next-token prediction
-        logits = logits[:, :-1, :]
-        ref_logits = ref_logits[:, :-1, :]
+        # Prompt/P-tuning prepend virtual tokens to policy logits while the
+        # frozen reference sees only real input tokens. Align from the right,
+        # then apply the same next-token shift to both sequences.
+        logits, ref_logits = align_next_token_logits(logits, ref_logits)
 
         attention_mask = inputs.get("attention_mask")
         if attention_mask is None:
             mask = torch.ones(logits.shape[:2], device=logits.device)
         else:
             mask = attention_mask[:, 1:].to(logits.device)
+            mask = mask[:, -logits.shape[1]:]
 
         temperature = float(self.policy_config.get("temperature", 1.0))
         kl_coef = float(self.policy_config.get("kl_coef", 0.1))

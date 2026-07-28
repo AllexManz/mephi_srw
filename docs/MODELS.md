@@ -1,6 +1,8 @@
 # Базовые модели
 
-Поддерживаемые профили находятся в `configs/model/`:
+Hydra-профили находятся в `configs/model/`, а runtime registry с benchmark dtype
+и Hugging Face name — в `configs/runtime.yaml`. ID в двух местах должны
+совпадать; `src/runtime_config.py` отклоняет неизвестные campaign model ids.
 
 | ID | Base model |
 |---|---|

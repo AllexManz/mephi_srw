@@ -93,6 +93,13 @@ def main(cfg: DictConfig):
     with open(eval_file, "r", encoding="utf-8") as f:
         eval_examples = json.load(f)
 
+    train_limit = cfg.training.training.data.get("train_limit")
+    eval_limit = cfg.training.training.data.get("eval_limit")
+    if train_limit is not None:
+        train_examples = train_examples[: int(train_limit)]
+    if eval_limit is not None:
+        eval_examples = eval_examples[: int(eval_limit)]
+
     print(f"Loaded {len(train_examples)} training examples and {len(eval_examples)} evaluation examples")
 
     # Создаем датасеты

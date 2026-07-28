@@ -60,11 +60,10 @@ python src/run_siem.py --mode monitor --interval 60 --time-window 5
 Pipeline (SIEM -> QLoRA -> GSPO -> Eval):
 python src/train_pipeline.py
 
-MLflow локально:
-export MLFLOW_TRACKING_URI=file:./mlruns
-python src/train_pipeline.py
+Все локальные UI-сервисы:
+python scripts/lab.py up
 
-MLflow сервер (docker-compose):
-docker compose up -d
-export MLFLOW_TRACKING_URI=http://localhost:5000
-python src/train_pipeline.py
+Полная возобновляемая кампания и отчет:
+python scripts/lab.py all
+
+Настройки: configs/runtime.yaml

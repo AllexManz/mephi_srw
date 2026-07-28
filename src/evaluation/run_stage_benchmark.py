@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import time
 from pathlib import Path
@@ -113,6 +112,20 @@ def _score(item: Dict[str, Any], response: str) -> Dict[str, float]:
     return {"word_overlap": overlap, "actionability": actionable}
 
 
+def _aggregate_metrics(rows: List[Dict[str, Any]]) -> Tuple[Dict[str, float], Dict[str, int]]:
+    """Average each metric only over examples for which it is defined."""
+    metric_names = sorted({key for row in rows for key in row if key in {
+        "accuracy", "safety", "word_overlap", "actionability"
+    }})
+    metrics: Dict[str, float] = {}
+    metric_counts: Dict[str, int] = {}
+    for key in metric_names:
+        values = [float(row[key]) for row in rows if key in row]
+        metrics[key] = sum(values) / len(values)
+        metric_counts[key] = len(values)
+    return metrics, metric_counts
+
+
 def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
     local_path = Path(args.local_eval)
     external_path = Path(args.external_benchmark)
@@ -153,13 +166,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
             **scores,
         })
 
-    metric_names = sorted({key for row in rows for key in row if key in {
-        "accuracy", "safety", "word_overlap", "actionability"
-    }})
-    metrics = {
-        key: sum(row.get(key, 0.0) for row in rows) / len(rows)
-        for key in metric_names
-    }
+    metrics, metric_counts = _aggregate_metrics(rows)
     metrics["examples"] = float(len(rows))
     metrics["average_response_time_seconds"] = sum(
         row["response_time_seconds"] for row in rows
@@ -170,6 +177,7 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
         "model": args.model,
         "adapter_path": args.adapter_path,
         "metrics": metrics,
+        "metric_counts": metric_counts,
         "samples": rows[: args.samples],
     }
     output = Path(args.output)
@@ -178,9 +186,8 @@ def evaluate(args: argparse.Namespace) -> Dict[str, Any]:
 
     try:
         import mlflow
-        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "file:./mlruns")
-        mlflow.set_tracking_uri(tracking_uri)
-        mlflow.set_experiment("security-llm-benchmarks")
+        mlflow.set_tracking_uri(args.tracking_uri)
+        mlflow.set_experiment(args.mlflow_experiment)
         with mlflow.start_run(run_name=f"{args.model_id}-{args.stage}"):
             mlflow.set_tags({"model_id": args.model_id, "stage": args.stage})
             mlflow.log_params({"benchmark_limit": args.limit, "device": device})
@@ -208,6 +215,8 @@ def main() -> None:
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--torch-dtype", default="float32")
     parser.add_argument("--device", choices=["auto", "cpu"], default="auto")
+    parser.add_argument("--tracking-uri", default="file:./mlruns")
+    parser.add_argument("--mlflow-experiment", default="security-llm-benchmarks")
     evaluate(parser.parse_args())
 
 

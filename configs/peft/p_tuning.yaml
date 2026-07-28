@@ -1,6 +1,5 @@
-# P-tuning v2 compatible prefix-parameter tuning configuration.
-# The implementation uses PEFT's PrefixTuningConfig with model-derived
-# hidden dimensions, so the same config works across the supported models.
+# P-tuning prompt encoder configuration. Prompt embeddings avoid the legacy
+# tuple KV-cache incompatibility present in recent Transformers models.
 peft:
   enabled: true
   method: p_tuning
@@ -9,7 +8,8 @@ peft:
   common:
     task_type: CAUSAL_LM
     inference_mode: false
-  prefix_tuning:
+  prompt_encoder:
     num_virtual_tokens: 20
     encoder_hidden_size: null
-    prefix_projection: true
+    encoder_num_layers: 2
+    encoder_dropout: 0.0

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from typing import Any, Dict, Optional
@@ -48,9 +47,7 @@ def start_run(
             "Install requirements.txt or set logging.mlflow.enabled=false."
         )
 
-    tracking_uri = os.environ.get(
-        "MLFLOW_TRACKING_URI", str(mlflow_cfg.tracking_uri)
-    )
+    tracking_uri = str(mlflow_cfg.tracking_uri)
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(str(mlflow_cfg.experiment_name))
     run = mlflow.start_run(

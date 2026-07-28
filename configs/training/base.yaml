@@ -12,11 +12,20 @@ training:
   warmup_steps: 100
   max_steps: -1
 
+  # Optional deterministic slices for smoke/pilot campaigns. Null means the
+  # complete prepared split. These limits are applied before tokenization.
+  data:
+    train_limit: null
+    eval_limit: null
+
   # Optimization settings
   optimization:
+    optim: adamw_torch
     fp16: true
     gradient_checkpointing: true
-    dataloader_num_workers: 4
+    # Zero avoids tokenizer/fork deadlocks on the server's 5.4 kernel. Increase
+    # only after validating a newer kernel in the target environment.
+    dataloader_num_workers: 0
     dataloader_pin_memory: true
 
   # Save settings
@@ -37,6 +46,9 @@ training:
   policy_optimization:
     kl_coef: 0.1
     temperature: 1.0
+    # PEFT policies use an exact BF16 reference. Full policy training needs a
+    # compact reference to coexist on a single 40 GiB GPU.
+    full_reference_load_in_4bit: true
 
   # FSDP settings
   fsdp:

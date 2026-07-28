@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Documentation Steward"
+  short_description: "Keep project docs synchronized with code"
+  default_prompt: "Use $docs-source-of-truth to consult project documentation and update it after code changes."

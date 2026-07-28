@@ -11,7 +11,7 @@
 - `airflow/dags/` — DAG с кубиками prepare → baseline → pretrain → RL → evaluation;
 - `notebooks/` — просмотр данных, генераций и сравнение стадий;
 - `docs/` — отдельная документация моделей, данных, pretrain, RL, benchmark-ов, Airflow и MLflow;
-- `configs/` — Hydra-конфигурации моделей, обучения, PEFT, датасетов и логирования;
+- `configs/` — Hydra-конфигурации и единый runtime-конфиг сервисов/кампании;
 - `data/processed/` — локальные train/eval-данные;
 - `models/`, `logs/`, `outputs/` — результаты запусков (большие артефакты не предназначены для git).
 
@@ -31,13 +31,29 @@ python -m pip install -r requirements.txt
 python -m pip install -r requirements.lock
 ```
 
-Скопируйте настройки:
+Основной пользовательский конфиг — `configs/runtime.yaml`. Для локальных
+MLflow/Airflow/TensorBoard переменные окружения и `.env` не требуются.
+
+## Запуск одной командой
+
+Проверить всю матрицу команд без загрузки моделей:
 
 ```bash
-cp .env.example .env
+python scripts/lab.py all --dry-run --best-model gpt2
 ```
 
-В `.env` укажите `NVD_API_KEY`, если нужен NVD API, и замените локальные MinIO credentials. Файл `.env` не коммитится.
+Запустить сервисы, baseline всех моделей, выбрать лучшую, выполнить все пять
+pre-train методов × два alignment-метода, оценить каждую стадию и собрать отчет:
+
+```bash
+python scripts/lab.py all
+```
+
+При первом запуске команда создаст раздельные `.runtime/training-venv`,
+`.runtime/mlflow-venv` и `.runtime/airflow-venv`, локальные secret-файлы в `.secrets/`, MLflow,
+Airflow и TensorBoard. Кампания возобновляется по `state.json`, поэтому
+повторная команда пропускает уже завершенные стадии. Подробности:
+[docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 ## Подготовка датасета
 
@@ -53,6 +69,7 @@ python src/data/prepare_dataset.py dataset=small
 
 ```bash
 python src/run_experiment.py \
+  --config configs/runtime.yaml \
   --experiment security-llm \
   --models gpt2,qwen2_5 \
   --pretrain-method lora \
@@ -77,7 +94,7 @@ python src/train.py model=qwen2_5 peft=lora
 python src/evaluate.py model=gpt2 peft=lora
 ```
 
-Доступные конфигурации моделей: `gpt2`, `mistral`, `qwen2`, `qwen2_5`, `phi3`, `gemma2`, `llama3_2`, `deepseek_r1_1_5b`. Большинство моделей требуют доступа к Hugging Face и значительных ресурсов. PEFT-режимы: `lora`, `qlora`, `prefix_tuning`, `prompt_tuning`, `base`.
+Доступные конфигурации моделей: `gpt2`, `mistral`, `qwen2`, `qwen2_5`, `phi3`, `gemma2`, `llama3_2`, `deepseek_r1_1_5b`. Большинство моделей требуют доступа к Hugging Face и значительных ресурсов. Режимы кампании: `lora`, `qlora`, `prompt_tuning`, `p_tuning`, `full`; низкоуровневый Hydra-профиль `base` соответствует full fine-tuning, также сохранён дополнительный `prefix_tuning`.
 
 Пути и параметры можно переопределять через Hydra:
 
@@ -101,23 +118,18 @@ tensorboard --logdir logs
 
 ## SIEM и MLflow
 
-Обычный finetuning через `src/train.py` автоматически создаёт MLflow run, записывает параметры конфигурации, train/eval metrics на каждом шаге и итоговый adapter/checkpoint как artifact. Включение находится в `configs/logging/base.yaml`.
-
-Локальный MLflow UI:
-
-```bash
-python -m pip install -r requirements.txt
-mlflow ui --backend-store-uri ./mlruns --host 127.0.0.1 --port 5000
-```
-
-В отдельном терминале запустите обучение:
+Обычный finetuning через `src/train.py` создаёт MLflow run, записывает train/eval
+metrics и итоговый checkpoint. URI задается в Hydra-конфиге, а для полной
+кампании — в `configs/runtime.yaml`; окружение не имеет скрытого приоритета.
 
 ```bash
-MLFLOW_TRACKING_URI=file:./mlruns \
-python src/train.py model=gpt2 peft=lora
+python scripts/lab.py bootstrap  # только явная подготовка сервисного venv
+python scripts/lab.py up
+python scripts/lab.py status
 ```
 
-Откройте `http://127.0.0.1:5000`, выберите experiment `security-llm-finetuning` и нужный run. Для удалённого MLflow достаточно заменить `MLFLOW_TRACKING_URI`, например на `http://localhost:5000`.
+UI по умолчанию: MLflow `http://127.0.0.1:5000`, Airflow
+`http://127.0.0.1:8080`, TensorBoard `http://127.0.0.1:6006`.
 
 Расширенная локальная инструкция: [docs/MLFLOW.md](docs/MLFLOW.md).
 
@@ -134,22 +146,9 @@ python src/run_siem.py --mode monitor --interval 60 --time-window 5
 python src/train_pipeline.py
 ```
 
-Локальный MLflow можно запустить без Docker:
-
-```bash
-export MLFLOW_TRACKING_URI=file:./mlruns
-python src/train_pipeline.py
-```
-
-Для Docker сначала заполните `.env`, затем:
-
-```bash
-docker compose up -d
-export MLFLOW_TRACKING_URI=http://localhost:5000
-python src/train_pipeline.py
-```
-
-Compose намеренно не содержит credentials по умолчанию и завершится с ошибкой, если `MINIO_ROOT_USER` или `MINIO_ROOT_PASSWORD` не заданы.
+Docker не нужен для основного пути. Опциональный Compose backend MLflow+MinIO
+читает credentials из `.secrets/minio_root_user` и
+`.secrets/minio_root_password`; их создает `python scripts/lab.py init`.
 
 ## Security testing
 

@@ -16,6 +16,13 @@ RL alignment (GRPO/GSPO) ---> TensorBoard + MLflow + checkpoint
 stage benchmarks ---> JSON report + MLflow metrics + notebooks
 ```
 
-Главный CLI: `src/run_experiment.py`. Он сохраняет manifest в `outputs/experiments/<name>/manifest.json`. Этот manifest связывает базовую модель, pretrain artifact, RL artifact и benchmark outputs.
+Пользовательский entrypoint: `scripts/lab.py`; конфигурационный контракт:
+`configs/runtime.yaml`. Низкоуровневый CLI `src/run_experiment.py` сохраняет
+manifest в `outputs/experiments/<name>/manifest.json`.
+
+`src/run_campaign.py` добавляет resume-state, обработку частичных ошибок,
+автоматический выбор лучшей baseline-модели и cross-product пяти pre-train ×
+двух alignment-методов. State хранится в
+`outputs/campaigns/<name>/state.json`.
 
 Airflow вызывает те же CLI-команды по отдельности. Это делает pipeline воспроизводимым локально и в scheduler.

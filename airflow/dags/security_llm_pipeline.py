@@ -5,23 +5,34 @@ Airflow and each stage is visible as a separate Airflow task.
 """
 
 from datetime import datetime
-import os
+from pathlib import Path
+import shlex
+import sys
 
 from airflow import DAG
 from airflow.operators.bash import BashOperator
 
 
-ROOT = os.environ.get("SECURITY_LLM_REPO", "/opt/security-llm")
-MODELS = os.environ.get("SECURITY_LLM_MODELS", "gpt2")
-EXPERIMENT = os.environ.get("SECURITY_LLM_EXPERIMENT", "security-llm")
-PRETRAIN_METHOD = os.environ.get("SECURITY_LLM_PRETRAIN", "lora")
-RL_METHOD = os.environ.get("SECURITY_LLM_RL", "gspo")
-BENCHMARK_LIMIT = os.environ.get("SECURITY_LLM_BENCHMARK_LIMIT", "30")
-PYTHON = os.environ.get("SECURITY_LLM_PYTHON", "python")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from runtime_config import load_runtime_config  # noqa: E402
+
+
+RUNTIME_PATH = REPO_ROOT / "configs" / "runtime.yaml"
+RUNTIME = load_runtime_config(RUNTIME_PATH)
+CAMPAIGN = RUNTIME["campaign"]
+ROOT = str(REPO_ROOT)
+MODELS = ",".join(CAMPAIGN["models"])
+EXPERIMENT = CAMPAIGN["name"]
+PRETRAIN_METHOD = CAMPAIGN["pretrain_methods"][0]
+RL_METHOD = CAMPAIGN["rl_methods"][0]
+BENCHMARK_LIMIT = str(CAMPAIGN["benchmark"]["limit"])
+PYTHON = RUNTIME["project"]["python"]
 
 
 def run_command(command: str) -> str:
-    return f"cd {ROOT} && PYTHONPATH=src {PYTHON} {command}"
+    return f"cd {shlex.quote(ROOT)} && {shlex.quote(PYTHON)} {command}"
 
 
 with DAG(
@@ -38,28 +49,28 @@ with DAG(
     baseline = BashOperator(
         task_id="baseline_benchmarks",
         bash_command=run_command(
-            f"src/run_experiment.py --experiment {EXPERIMENT} --models {MODELS} "
+            f"src/run_experiment.py --config {RUNTIME_PATH} --experiment {EXPERIMENT} --models {MODELS} "
             f"--phase baseline --benchmark-limit {BENCHMARK_LIMIT}"
         ),
     )
     pretrain = BashOperator(
         task_id="pretrain",
         bash_command=run_command(
-            f"src/run_experiment.py --experiment {EXPERIMENT} --models {MODELS} "
+            f"src/run_experiment.py --config {RUNTIME_PATH} --experiment {EXPERIMENT} --models {MODELS} "
             f"--phase pretrain --pretrain-method {PRETRAIN_METHOD}"
         ),
     )
     rl_alignment = BashOperator(
         task_id="rl_alignment",
         bash_command=run_command(
-            f"src/run_experiment.py --experiment {EXPERIMENT} --models {MODELS} "
+            f"src/run_experiment.py --config {RUNTIME_PATH} --experiment {EXPERIMENT} --models {MODELS} "
             f"--phase rl --rl-method {RL_METHOD}"
         ),
     )
     post_training_benchmarks = BashOperator(
         task_id="post_training_benchmarks",
         bash_command=run_command(
-            f"src/run_experiment.py --experiment {EXPERIMENT} --models {MODELS} "
+            f"src/run_experiment.py --config {RUNTIME_PATH} --experiment {EXPERIMENT} --models {MODELS} "
             f"--phase evaluate --benchmark-limit {BENCHMARK_LIMIT}"
         ),
     )
